@@ -292,11 +292,16 @@ fn is_first_email(whole_thread_url: &str, thread: &EmailThread) -> bool {
 }
 
 fn main() -> Result<()> {
-    let start_day = "20250101";
-    let end_day = "20250201";
-    println!("Fetching emails from: {} ~ {}", start_day, end_day);
-    let thread_emails = get_new_subjects_between(start_day, end_day)?;
-    println!("\nFirst emails in each thread:");
+    use chrono::Local;
+
+    let current_datetime = Local::now().naive_local();
+    let end_day = current_datetime.format("%Y%m%d").to_string();
+    let start_day = (current_datetime - TimeDelta::days(7))
+        .format("%Y%m%d")
+        .to_string();
+
+    println!("Fetching new topics for last week from: {} ~ {}", start_day, end_day);
+    let thread_emails = get_new_subjects_between(&start_day, &end_day)?;
     println!("----------------------------");
     for thread in thread_emails {
         println!("{}", thread);

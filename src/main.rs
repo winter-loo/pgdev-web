@@ -6,7 +6,7 @@ use reqwest::blocking::Client;
 use scraper::{Html, Selector};
 
 const PG_SITE: &str = "https://www.postgresql.org";
-const WHOLE_THREAD_URL_PREFIX: &str = concatcp!(PG_SITE, "/message-id/flat");
+const MESSAGE_URL_PREFIX: &str = concatcp!(PG_SITE, "/message-id");
 const NEXT_THREADS_URL_PREFIX: &str = concatcp!(PG_SITE, "/list/pgsql-hackers/since");
 
 // compile-time lookup table
@@ -38,12 +38,22 @@ fn transform_date(date_text: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(&date_text, "%B %d, %Y").ok()
 }
 
+trait PgMessage {
+    fn id(&self) -> &str;
+}
+
 #[derive(Debug)]
 struct EmailThread {
     id: String,
     subject: String,
     datetime: NaiveDateTime,
     author: String,
+}
+
+impl PgMessage for EmailThread {
+    fn id(&self) -> &str {
+        &self.id
+    }
 }
 
 impl std::fmt::Display for EmailThread {
@@ -55,6 +65,50 @@ impl std::fmt::Display for EmailThread {
             self.author,
             self.datetime.format("%Y-%m-%d %H:%M:%S"),
             self.id
+        )
+    }
+}
+
+#[derive(Debug)]
+struct EmailThreadDetail {
+    id: String,
+    subject: String,
+    datetime: NaiveDateTime,
+    author_name: String,
+    author_email: String,
+    content: String,
+    // name and url
+    attachments: Vec<(String, String)>,
+    // list of other messages' id
+    replies: Vec<String>,
+}
+
+impl PgMessage for EmailThreadDetail {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl std::fmt::Display for EmailThreadDetail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Thread: {}\n\
+            Author Name: {}\n\
+            Author Email: {}\n\
+            Time: {}\n\
+            URL: {PG_SITE}/message-id/{}\n\
+            Content Size: {}\n\
+            Total Attachments: {}\n\
+            Total replies: {}",
+            self.subject,
+            self.author_name,
+            self.author_email,
+            self.datetime.format("%Y-%m-%d %H:%M:%S"),
+            self.id,
+            self.content.len(),
+            self.attachments.len(),
+            self.replies.len(),
         )
     }
 }
@@ -167,8 +221,11 @@ fn for_each_thread(url: &str, mut handle: impl FnMut(EmailThread) -> bool) -> Re
     Ok(())
 }
 
-// Get new subjects between start_day and end_day (inclusive)
-fn get_new_subjects_between(start_day: &str, end_day: &str) -> Result<Vec<EmailThread>> {
+fn get_threads_between<T: PgMessage>(
+    start_day: &str,
+    end_day: &str,
+    mut handle: impl FnMut(EmailThread) -> Option<T>,
+) -> Result<Vec<T>> {
     let mut start_date: NaiveDateTime = NaiveDate::parse_from_str(start_day, "%Y%m%d")
         .context("parse start date")?
         .into();
@@ -176,7 +233,7 @@ fn get_new_subjects_between(start_day: &str, end_day: &str) -> Result<Vec<EmailT
         .context("parse end date")?
         .and_hms_opt(23, 59, 59)
         .unwrap();
-    let mut threads: Vec<EmailThread> = Vec::new();
+    let mut threads: Vec<T> = Vec::new();
 
     // we use following two variables to ensure we process each date fully and exactly once
     let mut current_size = 0;
@@ -207,7 +264,7 @@ fn get_new_subjects_between(start_day: &str, end_day: &str) -> Result<Vec<EmailT
         for_each_thread(&current_url, |thread| {
             if has_dups {
                 for thr in threads.iter().rev() {
-                    if thr.id == thread.id {
+                    if thr.id() == thread.id {
                         has_dups = true;
                         return true; // return early for next thread
                     }
@@ -215,13 +272,14 @@ fn get_new_subjects_between(start_day: &str, end_day: &str) -> Result<Vec<EmailT
                 has_dups = false;
             }
 
-            let whole_thread_url = format!("{WHOLE_THREAD_URL_PREFIX}/{}", thread.id);
             start_date = thread.datetime;
 
             // we only handle threads between start_date and end_date
             let in_range = start_date <= end_date;
-            if in_range && is_first_email(&whole_thread_url, &thread) {
-                threads.push(thread);
+            if in_range {
+                if let Some(thread) = handle(thread) {
+                    threads.push(thread);
+                }
             }
             in_range
         })
@@ -236,7 +294,127 @@ fn get_new_subjects_between(start_day: &str, end_day: &str) -> Result<Vec<EmailT
     Ok(threads)
 }
 
-fn is_first_email(whole_thread_url: &str, thread: &EmailThread) -> bool {
+// Get new subjects between start_day and end_day (inclusive)
+fn get_new_subjects_between(start_day: &str, end_day: &str) -> Result<Vec<EmailThread>> {
+    get_threads_between(start_day, end_day, |thread| {
+        if is_thread_starter(&thread) {
+            Some(thread)
+        } else {
+            None
+        }
+    })
+}
+
+/// active subject is the subject under discussion, including reply thread and new thread
+fn get_active_subjects_between(start_day: &str, end_day: &str) -> Result<Vec<EmailThreadDetail>> {
+    let mut seen_ids = std::collections::HashSet::new();
+    get_threads_between(start_day, end_day, |thread| {
+        let id = get_thread_starter_id(&thread.id);
+        if seen_ids.contains(&id) {
+            None
+        } else {
+            let t = get_thread_by_id(&id);
+            seen_ids.insert(id);
+            Some(t)
+        }
+    })
+}
+
+fn get_thread_by_id(id: &str) -> EmailThreadDetail {
+    let message_url = format!("{MESSAGE_URL_PREFIX}/{id}");
+    let doc = get_document(&message_url)
+        .context("failed to get the email")
+        .unwrap();
+
+    let table_tag_name = "#pgContentWrap table";
+    let table_tag = Selector::parse(table_tag_name).unwrap();
+    let select_tag = Selector::parse("select#thread_select").unwrap();
+    let option_tag = Selector::parse("option").unwrap();
+    let tr_tag = Selector::parse("tr").unwrap();
+    let td_tag = Selector::parse("td").unwrap();
+    let content_tag_name = "#pgContentWrap div.message-content";
+    let content_tag = Selector::parse(content_tag_name).unwrap();
+    let attchm_tag_name = "#pgContentWrap table.message-attachments";
+    let attchm_tag = Selector::parse(attchm_tag_name).unwrap();
+    let th_tag = Selector::parse("th").unwrap();
+    let a_tag = Selector::parse("a").unwrap();
+
+    let tr_elems: Vec<_> = doc
+        .select(&table_tag)
+        .next()
+        .context(format!("no tag '{table_tag_name}' found in the page"))
+        .unwrap()
+        .select(&tr_tag)
+        .collect();
+
+    let replies: Vec<_> = doc
+        .select(&select_tag)
+        .next()
+        .context("no 'select' tag in the page")
+        .unwrap()
+        .select(&option_tag)
+        .map(|opt_elem| opt_elem.value().attr("value").unwrap_or("").to_string())
+        .collect();
+
+    let content_elem = doc
+        .select(&content_tag)
+        .next()
+        .context(format!("no tag '{content_tag_name}' found"))
+        .unwrap();
+    let content = content_elem.text().collect::<String>().trim().to_string();
+
+    let mut attachments = Vec::new();
+    if let Some(attchm_elem) = doc.select(&attchm_tag).next() {
+        for att in attchm_elem.select(&th_tag) {
+            if let Some(link) = att.select(&a_tag).next() {
+                attachments.push((
+                    link.value().attr("href").unwrap_or("").to_string(),
+                    link.text().collect::<String>().trim().to_string(),
+                ));
+            }
+        }
+    }
+
+    let (from_elem, subject_elem, datetime_elem) = if tr_elems.len() == 8 {
+        (tr_elems[0], tr_elems[2], tr_elems[3])
+    } else if tr_elems.len() == 9 {
+        (tr_elems[0], tr_elems[3], tr_elems[4])
+    } else {
+        panic!("the table has neither 8 or 9 rows");
+    };
+    let td_elem = from_elem.select(&td_tag).next().unwrap();
+    let author_details = td_elem.text().collect::<String>().trim().to_string();
+    let mut author_details = author_details.split('<');
+    let author_name = author_details.next().unwrap_or("").trim().to_string();
+    let author_email = author_details
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(">")
+        .replace("(dot)", ".")
+        .replace("(at)", "@");
+
+    let td_elem = subject_elem.select(&td_tag).next().unwrap();
+    let subject = td_elem.text().collect::<String>().trim().to_string();
+
+    let td_elem = datetime_elem.select(&td_tag).next().unwrap();
+    let datetime_str = td_elem.text().collect::<String>().trim().to_string();
+    let datetime = NaiveDateTime::parse_from_str(&datetime_str, "%Y-%m-%d %H:%M:%S")
+        .context("invalid datetime format")
+        .unwrap();
+
+    EmailThreadDetail {
+        id: id.to_string(),
+        subject,
+        datetime,
+        author_name,
+        author_email,
+        content,
+        attachments,
+        replies,
+    }
+}
+
+fn is_thread_starter(thread: &EmailThread) -> bool {
     if thread.subject.starts_with("Re:")
         || thread.subject.starts_with("re:")
         || thread.subject.starts_with("RE:")
@@ -257,55 +435,93 @@ fn is_first_email(whole_thread_url: &str, thread: &EmailThread) -> bool {
         return true;
     }
 
-    let document = get_document(whole_thread_url)
-        .context("Failed to get document")
-        .unwrap();
-    let tag_table = Selector::parse("table.message-header").unwrap();
-    let tag_tr = Selector::parse("tr").unwrap();
-    let tag_td = Selector::parse("td").unwrap();
-    let tag_a = Selector::parse("a").unwrap();
-    let mut ans = false;
-    for elem_table in document.select(&tag_table) {
-        let rows = elem_table.select(&tag_tr).count();
-        let mid_idx = if rows == 7 {
-            4
-        } else if rows == 8 {
-            5
-        } else {
-            0
-        };
-        if mid_idx != 0 {
-            let elem_tr = elem_table.select(&tag_tr).nth(mid_idx).unwrap();
-            let elem_td = elem_tr.select(&tag_td).next().unwrap();
-            let elem_a = elem_td
-                .select(&tag_a)
-                .next()
-                .context("no tag 'a' found")
-                .unwrap();
-            let href = elem_a.value().attr("href").unwrap_or("");
-            let id = href.trim_start_matches("/message-id/").to_string();
-            ans = id == thread.id;
-            break;
-        }
-    }
-    ans
+    is_thread_starter_by_id(&thread.id)
+}
+
+#[allow(unused)]
+fn get_subject_thread_id_list(id: &str) -> Result<Vec<String>> {
+    let message_url = format!("{MESSAGE_URL_PREFIX}/{id}");
+    let select_tag = Selector::parse("select#thread_select").unwrap();
+    let option_tag = Selector::parse("option").unwrap();
+
+    get_document(&message_url)
+        .context("failed to get document")
+        .unwrap()
+        .select(&select_tag)
+        .next()
+        .context("no 'select' tag in the page")
+        .and_then(|select| {
+            Ok(select
+                .select(&option_tag)
+                .map(|opt_elem| opt_elem.value().attr("value").unwrap_or("").to_string())
+                .collect::<Vec<_>>())
+        })
+}
+
+fn get_thread_starter_id(id: &str) -> String {
+    let message_url = format!("{MESSAGE_URL_PREFIX}/{id}");
+    let select_tag = Selector::parse("select#thread_select").unwrap();
+    let option_tag = Selector::parse("option").unwrap();
+
+    get_document(&message_url)
+        .context("failed to get document")
+        .unwrap()
+        .select(&select_tag)
+        .next()
+        .context("no 'select' tag in the page")
+        .unwrap()
+        .select(&option_tag)
+        .next()
+        .context("no 'option' tag in 'select' tag")
+        .unwrap()
+        .value()
+        .attr("value")
+        .map(|value| value.to_string())
+        .context("no 'value' tag in the 'option' tag")
+        .unwrap()
+}
+
+fn is_thread_starter_by_id(id: &str) -> bool {
+    get_thread_starter_id(id) == id
 }
 
 fn main() -> Result<()> {
     use chrono::Local;
 
-    let current_datetime = Local::now().naive_local();
-    let end_day = current_datetime.format("%Y%m%d").to_string();
-    let start_day = (current_datetime - TimeDelta::days(7))
-        .format("%Y%m%d")
-        .to_string();
+    let args: Vec<_> = std::env::args().collect();
+    let get_active = args.len() == 2 && args[1] == "active";
 
-    println!("Fetching new topics for last week from: {} ~ {}", start_day, end_day);
-    let thread_emails = get_new_subjects_between(&start_day, &end_day)?;
-    println!("----------------------------");
-    for thread in thread_emails {
-        println!("{}", thread);
-        println!();
+    if get_active {
+        let current_datetime = Local::now().naive_local();
+        let end_day = current_datetime.format("%Y%m%d").to_string();
+        let start_day = (current_datetime - TimeDelta::days(1))
+            .format("%Y%m%d")
+            .to_string();
+
+        println!("Fetching all subjects under discussion for {start_day} ~ {end_day}");
+        let thread_emails = get_active_subjects_between(&start_day, &end_day)?;
+        println!("----------------------------");
+        for thread in thread_emails {
+            println!("{}", thread);
+            println!();
+        }
+    } else {
+        let current_datetime = Local::now().naive_local();
+        let end_day = current_datetime.format("%Y%m%d").to_string();
+        let start_day = (current_datetime - TimeDelta::days(7))
+            .format("%Y%m%d")
+            .to_string();
+
+        println!(
+            "Fetching new topics for last week from: {} ~ {}",
+            start_day, end_day
+        );
+        let thread_emails = get_new_subjects_between(&start_day, &end_day)?;
+        println!("----------------------------");
+        for thread in thread_emails {
+            println!("{}", thread);
+            println!();
+        }
     }
     Ok(())
 }

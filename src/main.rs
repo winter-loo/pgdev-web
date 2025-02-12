@@ -1,13 +1,13 @@
 use anyhow::{Context, Ok, Result};
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
 use const_format::concatcp;
 use phf::phf_map;
 use reqwest::blocking::Client;
 use scraper::{Html, Selector};
-use std::collections::HashSet;
 
 const PG_SITE: &str = "https://www.postgresql.org";
 const WHOLE_THREAD_URL_PREFIX: &str = concatcp!(PG_SITE, "/message-id/flat");
+const NEXT_THREADS_URL_PREFIX: &str = concatcp!(PG_SITE, "/list/pgsql-hackers/since");
 
 // compile-time lookup table
 static MONTHS_MAP: phf::Map<&'static str, &'static str> = phf_map! {
@@ -59,6 +59,24 @@ impl std::fmt::Display for EmailThread {
     }
 }
 
+fn clean_subject_title(title: &str) -> String {
+    let title = title.trim();
+    // remove unicode emoji
+    let title = title.split('📎').next().unwrap_or(title).trim().to_string();
+    // replace multiple spaces with single one
+    let mut new_title = String::new();
+    let mut prev_char = ' ';
+    for char in title.chars() {
+        if char.is_whitespace() && !prev_char.is_whitespace() {
+            new_title.push(' ');
+        } else if !char.is_whitespace() {
+            new_title.push(char);
+        }
+        prev_char = char;
+    }
+    new_title
+}
+
 fn handle_table(
     table: &scraper::ElementRef,
     date: NaiveDate,
@@ -77,7 +95,7 @@ fn handle_table(
         let tds: Vec<_> = tr.select(&td_selector).collect();
 
         // Skip table header rows
-        if tds.len() == 0 {
+        if tds.is_empty() {
             continue;
         }
 
@@ -88,7 +106,8 @@ fn handle_table(
             // Get subject and URL
             if let Some(a) = subject_td.select(&a_selector).next() {
                 let text = a.text().collect::<String>().trim().to_string();
-                let clean_subject = text.split('📎').next().unwrap_or(&text).trim().to_string();
+                let clean_subject = clean_subject_title(&text);
+
                 let href = a.value().attr("href").unwrap_or("");
                 let author = author_td.text().collect::<String>().trim().to_string();
                 let time_str = time_td.text().collect::<String>().trim().to_string();
@@ -122,7 +141,8 @@ fn get_document(url: &str) -> Result<Html> {
     Ok(document)
 }
 
-/// handle threads of each day but the last day in the page
+/// handle threads of each day found in the page.
+/// when `handle` returns `false`, the processing is stopped.
 fn for_each_thread(url: &str, mut handle: impl FnMut(EmailThread) -> bool) -> Result<()> {
     let document = get_document(url)?;
 
@@ -131,22 +151,15 @@ fn for_each_thread(url: &str, mut handle: impl FnMut(EmailThread) -> bool) -> Re
     // Next to h2, find table
     let table_selector = Selector::parse("h2 + table").unwrap();
     let mut table_iter = document.select(&table_selector);
-    // do not process the last table
-    let mut next = table_iter.next();
-    let mut next2 = table_iter.next();
 
     // First find the date
     for h2 in document.select(&h2_selector) {
         let date_text = h2.text().collect::<String>();
         if let Some(date) = transform_date(&date_text) {
-            if let Some(false) =
-                next.and_then(|table| Some(handle_table(&table, date, &mut handle)))
+            if let Some(false) = table_iter
+                .next()
+                .map(|table| handle_table(&table, date, &mut handle))
             {
-                break;
-            }
-            next = next2;
-            next2 = table_iter.next();
-            if next2.is_none() {
                 break;
             }
         }
@@ -154,28 +167,71 @@ fn for_each_thread(url: &str, mut handle: impl FnMut(EmailThread) -> bool) -> Re
     Ok(())
 }
 
-fn get_new_subjects_between(start_date: &str, end_date: &str) -> Result<Vec<EmailThread>> {
-    let mut start_date =
-        NaiveDate::parse_from_str(start_date, "%Y%m%d").context("parse start date")?;
-    let end_date = NaiveDate::parse_from_str(end_date, "%Y%m%d").context("parse end date")?;
-    let mut threads = Vec::new();
+// Get new subjects between start_day and end_day (inclusive)
+fn get_new_subjects_between(start_day: &str, end_day: &str) -> Result<Vec<EmailThread>> {
+    let mut start_date: NaiveDateTime = NaiveDate::parse_from_str(start_day, "%Y%m%d")
+        .context("parse start date")?
+        .into();
+    let end_date: NaiveDateTime = NaiveDate::parse_from_str(end_day, "%Y%m%d")
+        .context("parse end date")?
+        .and_hms_opt(23, 59, 59)
+        .unwrap();
+    let mut threads: Vec<EmailThread> = Vec::new();
+
+    // we use following two variables to ensure we process each date fully and exactly once
+    let mut current_size = 0;
+    let mut prev_date = start_date
+        .checked_sub_signed(TimeDelta::seconds(1))
+        .unwrap();
+
+    // process all threads between, like 20250101-00:00:00 and 20250101-23:59:59
     while start_date <= end_date {
         println!("start_date={start_date:#?} end_date={end_date:#?}");
+
+        // if the start_date was processed already, we are done with all dates
+        if prev_date == start_date {
+            break;
+        }
+        prev_date = start_date;
+
         let current_url = format!(
-            "{PG_SITE}/list/pgsql-hackers/since/{}0000",
-            start_date.format("%Y%m%d")
+            "{NEXT_THREADS_URL_PREFIX}/{}",
+            start_date.format("%Y%m%d%H%M")
         );
+
+        // It is possbile that we get part of data in the last day in the current page and get the same
+        // part of data in the next page of the same day. For example, we get some threads published parallelly
+        // at 20250212-13:58, and get next page from '/list/pgsql-hackers/since/202502121358', then we will get
+        // the same threads again of time 20250212-13:58. We need to remove the duplicates.
+        let mut has_dups = true;
         for_each_thread(&current_url, |thread| {
+            if has_dups {
+                for thr in threads.iter().rev() {
+                    if thr.id == thread.id {
+                        has_dups = true;
+                        return true; // return early for next thread
+                    }
+                }
+                has_dups = false;
+            }
+
             let whole_thread_url = format!("{WHOLE_THREAD_URL_PREFIX}/{}", thread.id);
-            start_date = thread.datetime.into();
-            if is_first_email(&whole_thread_url, &thread) {
+            start_date = thread.datetime;
+
+            // we only handle threads between start_date and end_date
+            let in_range = start_date <= end_date;
+            if in_range && is_first_email(&whole_thread_url, &thread) {
                 threads.push(thread);
             }
-            // we only handle threads between start_date and end_date
-            start_date <= end_date
+            in_range
         })
         .context("Failed to process email threads")?;
-        start_date = start_date.succ_opt().unwrap();
+
+        // not get any new thread
+        if current_size == threads.len() {
+            break;
+        }
+        current_size += threads.len();
     }
     Ok(threads)
 }
@@ -185,6 +241,14 @@ fn is_first_email(whole_thread_url: &str, thread: &EmailThread) -> bool {
         || thread.subject.starts_with("re:")
         || thread.subject.starts_with("RE:")
         || thread.subject.starts_with("rE:")
+    {
+        return false;
+    }
+
+    if thread.subject.starts_with("Re：")
+        || thread.subject.starts_with("re：")
+        || thread.subject.starts_with("RE：")
+        || thread.subject.starts_with("rE：")
     {
         return false;
     }
@@ -212,7 +276,7 @@ fn is_first_email(whole_thread_url: &str, thread: &EmailThread) -> bool {
         };
         if mid_idx != 0 {
             let elem_tr = elem_table.select(&tag_tr).nth(mid_idx).unwrap();
-            let elem_td = elem_tr.select(&tag_td).nth(0).unwrap();
+            let elem_td = elem_tr.select(&tag_td).next().unwrap();
             let elem_a = elem_td
                 .select(&tag_a)
                 .next()
@@ -243,10 +307,13 @@ fn main() -> Result<()> {
 
 #[test]
 fn test1() {
+    // has Chinese ':' in the subject title, like this: 'Re：Limit length of queryies in pg_stat_statement extension'
     let start_day = "20250118";
     let end_day = "20250118";
     println!("Fetching emails from: {} ~ {}", start_day, end_day);
     let thread_emails = get_new_subjects_between(start_day, end_day).unwrap();
+    assert!(thread_emails.len() == 1);
+
     println!("\nFirst emails in each thread:");
     println!("----------------------------");
     for thread in thread_emails {
@@ -257,10 +324,15 @@ fn test1() {
 
 #[test]
 fn test2() {
+    // has Re: in subject title, like this: 'Fwd: Re: A new look at old NFS readdir() problems?'
     let start_day = "20250102";
     let end_day = "20250102";
     println!("Fetching emails from: {} ~ {}", start_day, end_day);
     let thread_emails = get_new_subjects_between(start_day, end_day).unwrap();
+    assert!(thread_emails
+        .iter()
+        .any(|thread| thread.subject.contains("Re:")));
+
     println!("\nFirst emails in each thread:");
     println!("----------------------------");
     for thread in thread_emails {
@@ -271,14 +343,46 @@ fn test2() {
 
 #[test]
 fn test3() {
+    // has unicode emoji and '\n' in the subject title
     let start_day = "20250106";
     let end_day = "20250106";
     println!("Fetching emails from: {} ~ {}", start_day, end_day);
     let thread_emails = get_new_subjects_between(start_day, end_day).unwrap();
+    assert!(thread_emails
+        .iter()
+        .any(|thread| !thread.subject.contains('\n')));
+
     println!("\nFirst emails in each thread:");
     println!("----------------------------");
     for thread in thread_emails {
         println!("{}", thread);
         println!();
     }
+}
+
+#[test]
+fn test4() {
+    let start_day = "20240104";
+    let end_day = "20240104";
+    let thread_emails_20240104 = get_new_subjects_between(start_day, end_day).unwrap();
+    let start_day = "20240105";
+    let end_day = "20240105";
+    let thread_emails_20240105 = get_new_subjects_between(start_day, end_day).unwrap();
+    let start_day = "20240106";
+    let end_day = "20240106";
+    let thread_emails_20240106 = get_new_subjects_between(start_day, end_day).unwrap();
+
+    let start_day = "20240104";
+    let end_day = "20240106";
+    let thread_emails = get_new_subjects_between(start_day, end_day).unwrap();
+
+    assert!(
+        thread_emails_20240104.len() + thread_emails_20240105.len() + thread_emails_20240106.len()
+            == thread_emails.len()
+    );
+    assert!(thread_emails.iter().all(|thread| {
+        thread_emails_20240104.iter().any(|t| t.id == thread.id)
+            || thread_emails_20240105.iter().any(|t| t.id == thread.id)
+            || thread_emails_20240106.iter().any(|t| t.id == thread.id)
+    }));
 }

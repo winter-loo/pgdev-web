@@ -20,3 +20,9 @@ At the 'Whole Thread' page, all message ids should be kept in memory for later r
 ### bold approach
 
 combine the previous two approches
+
+
+## good postgresql.com ip addresses
+
+* 87.238.57.232 Norvay Oslo
+* 217.196.149.50 Austria Salzburg

@@ -70,15 +70,23 @@ impl std::fmt::Display for EmailThread {
 }
 
 #[derive(Debug)]
+struct ThreadAttachment {
+    name: String,
+    // url without domain name
+    href: String,
+}
+
+#[derive(Debug)]
 struct EmailThreadDetail {
     id: String,
     subject: String,
     datetime: NaiveDateTime,
     author_name: String,
     author_email: String,
+    // a html fragment
     content: String,
     // name and url
-    attachments: Vec<(String, String)>,
+    attachments: Vec<ThreadAttachment>,
     // list of other messages' id
     replies: Vec<String>,
 }
@@ -362,16 +370,16 @@ fn get_thread_by_id(id: &str) -> EmailThreadDetail {
         .next()
         .context(format!("no tag '{content_tag_name}' found"))
         .unwrap();
-    let content = content_elem.text().collect::<String>().trim().to_string();
+    let content = content_elem.inner_html();
 
     let mut attachments = Vec::new();
     if let Some(attchm_elem) = doc.select(&attchm_tag).next() {
         for att in attchm_elem.select(&th_tag) {
             if let Some(link) = att.select(&a_tag).next() {
-                attachments.push((
-                    link.value().attr("href").unwrap_or("").to_string(),
-                    link.text().collect::<String>().trim().to_string(),
-                ));
+                attachments.push(ThreadAttachment {
+                    name: link.text().collect::<String>().trim().to_string(),
+                    href: link.value().attr("href").unwrap_or("").to_string(),
+                });
             }
         }
     }
@@ -395,7 +403,7 @@ fn get_thread_by_id(id: &str) -> EmailThreadDetail {
         .replace("(at)", "@");
 
     let td_elem = subject_elem.select(&td_tag).next().unwrap();
-    let subject = td_elem.text().collect::<String>().trim().to_string();
+    let subject = clean_subject_title(td_elem.text().collect::<String>().trim());
 
     let td_elem = datetime_elem.select(&td_tag).next().unwrap();
     let datetime_str = td_elem.text().collect::<String>().trim().to_string();
@@ -607,4 +615,21 @@ fn test4() {
             || thread_emails_20240105.iter().any(|t| t.id == thread.id)
             || thread_emails_20240106.iter().any(|t| t.id == thread.id)
     }));
+}
+
+#[test]
+fn get_email_thread_detail() {
+    let detail = get_thread_by_id("CAHv8RjKhA%3D_h5vAbozzJ1Opnv%3DKXYQHQ-fJyaMfqfRqPpnC2bA%40mail.gmail.com");
+    println!("{detail:#?}");
+    assert_eq!(detail.id, "CAHv8RjKhA%3D_h5vAbozzJ1Opnv%3DKXYQHQ-fJyaMfqfRqPpnC2bA%40mail.gmail.com");
+    assert_eq!(detail.subject, "Enhance 'pg_createsubscriber' to retrieve databases automatically when no database is provided.");
+
+    assert_eq!(detail.datetime.format("%Y-%m-%d %H:%M:%S").to_string(), "2025-01-22 13:59:09");
+    assert_eq!(detail.author_name, "Shubham Khanna");
+    assert_eq!(detail.author_email, "khannashubham1197@gmail.com");
+    assert!(detail.content.contains("<br>"));
+    assert_eq!(detail.attachments.len(), 1);
+    assert_eq!(detail.attachments[0].name, "v1-0001-Enhance-pg_createsubscriber-to-fetch-and-append-a.patch");
+    assert_eq!(detail.attachments[0].href, "/message-id/attachment/170920/v1-0001-Enhance-pg_createsubscriber-to-fetch-and-append-a.patch");
+    assert_eq!(detail.replies.len(), 34);
 }

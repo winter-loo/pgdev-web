@@ -197,11 +197,11 @@ fn get_document(url: &str) -> Result<Html> {
     let client = Client::new();
     let start_time = std::time::Instant::now();
     let response = client.get(url).send().context("Failed to fetch the page")?;
-    let body = response.text().context("Failed to get response text")?;
     println!(
         "get document from {url}, done, elapsed: {} ms",
         start_time.elapsed().as_millis()
     );
+    let body = response.text().context("Failed to get response text")?;
 
     let document = Html::parse_document(&body);
     Ok(document)

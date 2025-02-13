@@ -198,7 +198,10 @@ fn get_document(url: &str) -> Result<Html> {
     let start_time = std::time::Instant::now();
     let response = client.get(url).send().context("Failed to fetch the page")?;
     let body = response.text().context("Failed to get response text")?;
-    println!("get document from {url}, done, elapsed: {} ms", start_time.elapsed().as_millis());
+    println!(
+        "get document from {url}, done, elapsed: {} ms",
+        start_time.elapsed().as_millis()
+    );
 
     let document = Html::parse_document(&body);
     Ok(document)
@@ -230,18 +233,13 @@ fn for_each_thread(url: &str, mut handle: impl FnMut(EmailThread) -> bool) -> Re
     Ok(())
 }
 
+// NaiveDateTime is copyable
 fn get_threads_between<T: PgMessage>(
-    start_day: &str,
-    end_day: &str,
+    start_date: NaiveDateTime,
+    end_date: NaiveDateTime,
     mut handle: impl FnMut(EmailThread) -> Option<T>,
 ) -> Result<Vec<T>> {
-    let mut start_date: NaiveDateTime = NaiveDate::parse_from_str(start_day, "%Y%m%d")
-        .context("parse start date")?
-        .into();
-    let end_date: NaiveDateTime = NaiveDate::parse_from_str(end_day, "%Y%m%d")
-        .context("parse end date")?
-        .and_hms_opt(23, 59, 59)
-        .unwrap();
+    let mut start_date = start_date;
     let mut threads: Vec<T> = Vec::new();
 
     // we use following two variables to ensure we process each date fully and exactly once
@@ -304,8 +302,11 @@ fn get_threads_between<T: PgMessage>(
 }
 
 // Get new subjects between start_day and end_day (inclusive)
-fn get_new_subjects_between(start_day: &str, end_day: &str) -> Result<Vec<EmailThread>> {
-    get_threads_between(start_day, end_day, |thread| {
+fn get_new_subjects_between(
+    start_date: NaiveDateTime,
+    end_date: NaiveDateTime,
+) -> Result<Vec<EmailThread>> {
+    get_threads_between(start_date, end_date, |thread| {
         if is_thread_starter(&thread) {
             Some(thread)
         } else {
@@ -315,9 +316,12 @@ fn get_new_subjects_between(start_day: &str, end_day: &str) -> Result<Vec<EmailT
 }
 
 /// active subject is the subject under discussion, including reply thread and new thread
-fn get_active_subjects_between(start_day: &str, end_day: &str) -> Result<Vec<EmailThreadDetail>> {
+fn get_active_subjects_between(
+    start_date: NaiveDateTime,
+    end_date: NaiveDateTime,
+) -> Result<Vec<EmailThreadDetail>> {
     let mut seen_ids = std::collections::HashSet::new();
-    get_threads_between(start_day, end_day, |thread| {
+    get_threads_between(start_date, end_date, |thread| {
         let id = get_thread_starter_id(&thread.id);
         if seen_ids.contains(&id) {
             None
@@ -501,31 +505,28 @@ fn main() -> Result<()> {
     let get_active = args.len() == 2 && args[1] == "active";
 
     if get_active {
-        let current_datetime = Local::now().naive_local();
-        let end_day = current_datetime.format("%Y%m%d").to_string();
-        let start_day = (current_datetime - TimeDelta::days(1))
-            .format("%Y%m%d")
-            .to_string();
+        let end_date = Local::now().naive_local();
+        let start_date = end_date - TimeDelta::days(1);
 
-        println!("Fetching all subjects under discussion for {start_day} ~ {end_day}");
-        let thread_emails = get_active_subjects_between(&start_day, &end_day)?;
+        println!(
+            "Fetching all subjects under discussion from {} to {}",
+            start_date, end_date
+        );
+        let thread_emails = get_active_subjects_between(start_date, end_date)?;
         println!("----------------------------");
         for thread in thread_emails {
             println!("{}", thread);
             println!();
         }
     } else {
-        let current_datetime = Local::now().naive_local();
-        let end_day = current_datetime.format("%Y%m%d").to_string();
-        let start_day = (current_datetime - TimeDelta::days(7))
-            .format("%Y%m%d")
-            .to_string();
+        let end_date = Local::now().naive_local();
+        let start_date = end_date - TimeDelta::days(7);
 
         println!(
-            "Fetching new topics for last week from: {} ~ {}",
-            start_day, end_day
+            "Fetching new topics for last week from {} to {}",
+            start_date, end_date
         );
-        let thread_emails = get_new_subjects_between(&start_day, &end_day)?;
+        let thread_emails = get_new_subjects_between(start_date, end_date)?;
         println!("----------------------------");
         for thread in thread_emails {
             println!("{}", thread);
@@ -539,9 +540,10 @@ fn main() -> Result<()> {
 fn test1() {
     // has Chinese ':' in the subject title, like this: 'Re：Limit length of queryies in pg_stat_statement extension'
     let start_day = "20250118";
-    let end_day = "20250118";
-    println!("Fetching emails from: {} ~ {}", start_day, end_day);
-    let thread_emails = get_new_subjects_between(start_day, end_day).unwrap();
+    let start_date = NaiveDate::parse_from_str(&start_day, "%Y%m%d").unwrap();
+    let end_date = start_date.and_hms_opt(23, 59, 59).unwrap();
+    println!("Fetching emails from: {} ~ {}", start_date, end_date);
+    let thread_emails = get_new_subjects_between(start_date.into(), end_date).unwrap();
     assert!(thread_emails.len() == 1);
 
     println!("\nFirst emails in each thread:");
@@ -556,9 +558,10 @@ fn test1() {
 fn test2() {
     // has Re: in subject title, like this: 'Fwd: Re: A new look at old NFS readdir() problems?'
     let start_day = "20250102";
-    let end_day = "20250102";
-    println!("Fetching emails from: {} ~ {}", start_day, end_day);
-    let thread_emails = get_new_subjects_between(start_day, end_day).unwrap();
+    let start_date = NaiveDate::parse_from_str(&start_day, "%Y%m%d").unwrap();
+    let end_date = start_date.and_hms_opt(23, 59, 59).unwrap();
+    println!("Fetching emails from: {} ~ {}", start_date, end_date);
+    let thread_emails = get_new_subjects_between(start_date.into(), end_date).unwrap();
     assert!(thread_emails
         .iter()
         .any(|thread| thread.subject.contains("Re:")));
@@ -575,9 +578,10 @@ fn test2() {
 fn test3() {
     // has unicode emoji and '\n' in the subject title
     let start_day = "20250106";
-    let end_day = "20250106";
-    println!("Fetching emails from: {} ~ {}", start_day, end_day);
-    let thread_emails = get_new_subjects_between(start_day, end_day).unwrap();
+    let start_date = NaiveDate::parse_from_str(&start_day, "%Y%m%d").unwrap();
+    let end_date = start_date.and_hms_opt(23, 59, 59).unwrap();
+    println!("Fetching emails from: {} ~ {}", start_date, end_date);
+    let thread_emails = get_new_subjects_between(start_date.into(), end_date).unwrap();
     assert!(thread_emails
         .iter()
         .any(|thread| !thread.subject.contains('\n')));
@@ -593,18 +597,24 @@ fn test3() {
 #[test]
 fn test4() {
     let start_day = "20240104";
-    let end_day = "20240104";
-    let thread_emails_20240104 = get_new_subjects_between(start_day, end_day).unwrap();
+    let start_date = NaiveDate::parse_from_str(&start_day, "%Y%m%d").unwrap();
+    let end_date = start_date.and_hms_opt(23, 59, 59).unwrap();
+    let thread_emails_20240104 = get_new_subjects_between(start_date.into(), end_date).unwrap();
     let start_day = "20240105";
-    let end_day = "20240105";
-    let thread_emails_20240105 = get_new_subjects_between(start_day, end_day).unwrap();
+    let start_date = NaiveDate::parse_from_str(&start_day, "%Y%m%d").unwrap();
+    let end_date = start_date.and_hms_opt(23, 59, 59).unwrap();
+    let thread_emails_20240105 = get_new_subjects_between(start_date.into(), end_date).unwrap();
     let start_day = "20240106";
-    let end_day = "20240106";
-    let thread_emails_20240106 = get_new_subjects_between(start_day, end_day).unwrap();
+    let start_date = NaiveDate::parse_from_str(&start_day, "%Y%m%d").unwrap();
+    let end_date = start_date.and_hms_opt(23, 59, 59).unwrap();
+    let thread_emails_20240106 = get_new_subjects_between(start_date.into(), end_date).unwrap();
 
     let start_day = "20240104";
+    let start_date = NaiveDate::parse_from_str(&start_day, "%Y%m%d").unwrap();
     let end_day = "20240106";
-    let thread_emails = get_new_subjects_between(start_day, end_day).unwrap();
+    let end_date = NaiveDate::parse_from_str(&end_day, "%Y%m%d").unwrap();
+    let end_date = end_date.and_hms_opt(23, 59, 59).unwrap();
+    let thread_emails = get_new_subjects_between(start_date.into(), end_date).unwrap();
 
     assert!(
         thread_emails_20240104.len() + thread_emails_20240105.len() + thread_emails_20240106.len()
@@ -619,17 +629,28 @@ fn test4() {
 
 #[test]
 fn get_email_thread_detail() {
-    let detail = get_thread_by_id("CAHv8RjKhA%3D_h5vAbozzJ1Opnv%3DKXYQHQ-fJyaMfqfRqPpnC2bA%40mail.gmail.com");
+    let detail = get_thread_by_id(
+        "CAHv8RjKhA%3D_h5vAbozzJ1Opnv%3DKXYQHQ-fJyaMfqfRqPpnC2bA%40mail.gmail.com",
+    );
     println!("{detail:#?}");
-    assert_eq!(detail.id, "CAHv8RjKhA%3D_h5vAbozzJ1Opnv%3DKXYQHQ-fJyaMfqfRqPpnC2bA%40mail.gmail.com");
+    assert_eq!(
+        detail.id,
+        "CAHv8RjKhA%3D_h5vAbozzJ1Opnv%3DKXYQHQ-fJyaMfqfRqPpnC2bA%40mail.gmail.com"
+    );
     assert_eq!(detail.subject, "Enhance 'pg_createsubscriber' to retrieve databases automatically when no database is provided.");
 
-    assert_eq!(detail.datetime.format("%Y-%m-%d %H:%M:%S").to_string(), "2025-01-22 13:59:09");
+    assert_eq!(
+        detail.datetime.format("%Y-%m-%d %H:%M:%S").to_string(),
+        "2025-01-22 13:59:09"
+    );
     assert_eq!(detail.author_name, "Shubham Khanna");
     assert_eq!(detail.author_email, "khannashubham1197@gmail.com");
     assert!(detail.content.contains("<br>"));
     assert_eq!(detail.attachments.len(), 1);
-    assert_eq!(detail.attachments[0].name, "v1-0001-Enhance-pg_createsubscriber-to-fetch-and-append-a.patch");
+    assert_eq!(
+        detail.attachments[0].name,
+        "v1-0001-Enhance-pg_createsubscriber-to-fetch-and-append-a.patch"
+    );
     assert_eq!(detail.attachments[0].href, "/message-id/attachment/170920/v1-0001-Enhance-pg_createsubscriber-to-fetch-and-append-a.patch");
     assert_eq!(detail.replies.len(), 34);
 }

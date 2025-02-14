@@ -5,11 +5,43 @@ import { format } from 'date-fns';
 import { getActiveSubjects, getNewSubjects } from './api/client';
 import type { EmailThread, EmailThreadDetail } from './api/client';
 
+interface SubjectState {
+  id: string;
+  expanded: boolean;
+}
+
 function App() {
   const [activeSubjects, setActiveSubjects] = useState<EmailThreadDetail[]>([]);
   const [newSubjects, setNewSubjects] = useState<EmailThread[]>([]);
   const [loadingActive, setLoadingActive] = useState(true);
   const [loadingNew, setLoadingNew] = useState(true);
+  const [hoveredSubjectId, setHoveredSubjectId] = useState<string | null>(null);
+  const [activeSubjectStates, setActiveSubjectStates] = useState<SubjectState[]>([]);
+
+  // Initialize subject states when subjects are loaded
+  useEffect(() => {
+    setActiveSubjectStates(activeSubjects.map(subject => ({ id: subject.id, expanded: false })));
+  }, [activeSubjects]);
+
+  // Handle keyboard events
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (e.key === 'f') {
+        if (hoveredSubjectId) {
+          // Fold single subject
+          setActiveSubjectStates(prev => prev.map(state => 
+            state.id === hoveredSubjectId ? { ...state, expanded: false } : state
+          ));
+        } else {
+          // Fold all subjects
+          setActiveSubjectStates(prev => prev.map(state => ({ ...state, expanded: false })));
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [hoveredSubjectId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -73,11 +105,11 @@ function App() {
                       variant="body1" 
                       sx={{ 
                         mt: 1,
-                        maxHeight: subject.content.length > 300 ? '100px' : 'none',
+                        maxHeight: subject.content.length > 300 && !activeSubjectStates.find(state => state.id === subject.id)?.expanded ? '100px' : 'none',
                         overflow: 'hidden',
                         position: 'relative',
                         '& .fade-overlay': {
-                          display: subject.content.length > 300 ? 'block' : 'none',
+                          display: subject.content.length > 300 && !activeSubjectStates.find(state => state.id === subject.id)?.expanded ? 'block' : 'none',
                           position: 'absolute',
                           bottom: 0,
                           left: 0,
@@ -90,23 +122,21 @@ function App() {
                       dangerouslySetInnerHTML={{ 
                         __html: DOMPurify.sanitize(subject.content) 
                       }} 
+                      onMouseEnter={() => setHoveredSubjectId(subject.id)}
+                      onMouseLeave={() => setHoveredSubjectId(null)}
                     />
                     {subject.content.length > 300 && (
                       <Button 
-                        onClick={(e) => {
-                          const target = e.currentTarget;
-                          const contentEl = target.previousElementSibling as HTMLElement;
-                          const isExpanded = contentEl.style.maxHeight === 'none';
-                          contentEl.style.maxHeight = isExpanded ? '100px' : 'none';
-                          target.textContent = isExpanded ? 'Show More' : 'Show Less';
-                          const overlay = contentEl.querySelector('.fade-overlay') as HTMLElement;
-                          if (overlay) {
-                            overlay.style.display = isExpanded ? 'block' : 'none';
-                          }
+                        onClick={() => {
+                          setActiveSubjectStates(prev => prev.map(state => 
+                            state.id === subject.id ? { ...state, expanded: !state.expanded } : state
+                          ));
                         }}
                         sx={{ mt: 1 }}
                       >
-                        Show More
+                        {activeSubjectStates.find(state => state.id === subject.id)?.expanded 
+                          ? 'Show Less' 
+                          : 'Show More'}
                       </Button>
                     )}
                     <div className="fade-overlay" />

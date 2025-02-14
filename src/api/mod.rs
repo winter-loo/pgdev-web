@@ -67,6 +67,7 @@ async fn get_active_subjects(
         .unwrap_or_else(|_| chrono::Local::now().naive_local());
 
     let subjects = get_active_subjects_between(start_date, end_date)
+        .await
         .unwrap_or_default()
         .into_iter()
         .map(EmailThreadDetailResponse::from)
@@ -84,6 +85,7 @@ async fn get_new_subjects(
         .unwrap_or_else(|_| chrono::Local::now().naive_local());
 
     let subjects = get_new_subjects_between(start_date, end_date)
+        .await
         .unwrap_or_default()
         .into_iter()
         .map(EmailThreadResponse::from)

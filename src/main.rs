@@ -4,7 +4,6 @@ use anyhow::{Context, Ok, Result};
 use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
 use const_format::concatcp;
 use phf::phf_map;
-use reqwest::blocking::Client;
 use scraper::{Html, Selector};
 
 const PG_SITE: &str = "https://www.postgresql.org";
@@ -194,16 +193,16 @@ fn handle_table(
     handle_ok
 }
 
-fn get_document(url: &str) -> Result<Html> {
+async fn get_document(url: &str) -> Result<Html> {
     println!("get document from {url}");
-    let client = Client::new();
+    let client = reqwest::Client::new();
     let start_time = std::time::Instant::now();
-    let response = client.get(url).send().context("Failed to fetch the page")?;
+    let response = client.get(url).send().await.context("Failed to fetch the page")?;
     println!(
         "get document from {url}, done, elapsed: {} ms",
         start_time.elapsed().as_millis()
     );
-    let body = response.text().context("Failed to get response text")?;
+    let body = response.text().await.context("Failed to get response text")?;
 
     let document = Html::parse_document(&body);
     Ok(document)
@@ -211,8 +210,8 @@ fn get_document(url: &str) -> Result<Html> {
 
 /// handle threads of each day found in the page.
 /// when `handle` returns `false`, the processing is stopped.
-fn for_each_thread(url: &str, mut handle: impl FnMut(EmailThread) -> bool) -> Result<()> {
-    let document = get_document(url)?;
+async fn for_each_thread(url: &str, mut handle: impl FnMut(EmailThread) -> bool) -> Result<()> {
+    let document = get_document(url).await?;
 
     // Find all elements
     let h2_selector = Selector::parse("h2").unwrap();
@@ -236,7 +235,7 @@ fn for_each_thread(url: &str, mut handle: impl FnMut(EmailThread) -> bool) -> Re
 }
 
 // NaiveDateTime is copyable
-fn get_threads_between<T: PgMessage>(
+async fn get_threads_between<T: PgMessage>(
     start_date: NaiveDateTime,
     end_date: NaiveDateTime,
     mut handle: impl FnMut(EmailThread) -> Option<T>,
@@ -292,6 +291,7 @@ fn get_threads_between<T: PgMessage>(
             }
             in_range
         })
+        .await
         .context("Failed to process email threads")?;
 
         // not get any new thread
@@ -304,40 +304,57 @@ fn get_threads_between<T: PgMessage>(
 }
 
 // Get new subjects between start_day and end_day (inclusive)
-fn get_new_subjects_between(
+async fn get_new_subjects_between(
     start_date: NaiveDateTime,
     end_date: NaiveDateTime,
 ) -> Result<Vec<EmailThread>> {
-    get_threads_between(start_date, end_date, |thread| {
-        if is_thread_starter(&thread) {
-            Some(thread)
-        } else {
-            None
+    let threads = get_threads_between(start_date, end_date, |thread| Some(thread))
+        .await?;
+    
+    let mut new_threads = Vec::new();
+    for thread in threads {
+        if is_thread_starter_by_id(&thread.id).await {
+            new_threads.push(thread);
         }
-    })
+    }
+    Ok(new_threads)
 }
 
 /// active subject is the subject under discussion, including reply thread and new thread
-fn get_active_subjects_between(
+async fn get_active_subjects_between(
     start_date: NaiveDateTime,
     end_date: NaiveDateTime,
 ) -> Result<Vec<EmailThreadDetail>> {
     let mut seen_ids = std::collections::HashSet::new();
-    get_threads_between(start_date, end_date, |thread| {
-        let id = get_thread_starter_id(&thread.id);
-        if seen_ids.contains(&id) {
-            None
-        } else {
-            let t = get_thread_by_id(&id);
-            seen_ids.insert(id);
-            Some(t)
-        }
+    let threads = get_threads_between(start_date, end_date, |thread| {
+        // We can't use async in this closure, so we'll collect all threads
+        // and filter them later
+        Some(thread)
     })
+    .await?;
+    
+    let mut filtered_threads = Vec::new();
+    for thread in threads {
+        let id = get_thread_starter_id(&thread.id).await;
+        if !seen_ids.contains(&id) {
+            seen_ids.insert(id);
+            filtered_threads.push(thread);
+        }
+    }
+    
+    let mut results = Vec::new();
+    for thread in filtered_threads {
+        let detail = get_thread_by_id(&thread.id).await;
+        results.push(detail);
+    }
+    Ok(results)
+
 }
 
-fn get_thread_by_id(id: &str) -> EmailThreadDetail {
+async fn get_thread_by_id(id: &str) -> EmailThreadDetail {
     let message_url = format!("{MESSAGE_URL_PREFIX}/{id}");
     let doc = get_document(&message_url)
+        .await
         .context("failed to get the email")
         .unwrap();
 
@@ -429,7 +446,7 @@ fn get_thread_by_id(id: &str) -> EmailThreadDetail {
     }
 }
 
-fn is_thread_starter(thread: &EmailThread) -> bool {
+async fn is_thread_starter(thread: &EmailThread) -> bool {
     if thread.subject.starts_with("Re:")
         || thread.subject.starts_with("re:")
         || thread.subject.starts_with("RE:")
@@ -450,16 +467,17 @@ fn is_thread_starter(thread: &EmailThread) -> bool {
         return true;
     }
 
-    is_thread_starter_by_id(&thread.id)
+    is_thread_starter_by_id(&thread.id).await
 }
 
 #[allow(unused)]
-fn get_subject_thread_id_list(id: &str) -> Result<Vec<String>> {
+async fn get_subject_thread_id_list(id: &str) -> Result<Vec<String>> {
     let message_url = format!("{MESSAGE_URL_PREFIX}/{id}");
     let select_tag = Selector::parse("select#thread_select").unwrap();
     let option_tag = Selector::parse("option").unwrap();
 
     get_document(&message_url)
+        .await
         .context("failed to get document")
         .unwrap()
         .select(&select_tag)
@@ -473,12 +491,13 @@ fn get_subject_thread_id_list(id: &str) -> Result<Vec<String>> {
         })
 }
 
-fn get_thread_starter_id(id: &str) -> String {
+async fn get_thread_starter_id(id: &str) -> String {
     let message_url = format!("{MESSAGE_URL_PREFIX}/{id}");
     let select_tag = Selector::parse("select#thread_select").unwrap();
     let option_tag = Selector::parse("option").unwrap();
 
     get_document(&message_url)
+        .await
         .context("failed to get document")
         .unwrap()
         .select(&select_tag)
@@ -496,8 +515,8 @@ fn get_thread_starter_id(id: &str) -> String {
         .unwrap()
 }
 
-fn is_thread_starter_by_id(id: &str) -> bool {
-    get_thread_starter_id(id) == id
+async fn is_thread_starter_by_id(id: &str) -> bool {
+    get_thread_starter_id(id).await == id
 }
 
 #[tokio::main]

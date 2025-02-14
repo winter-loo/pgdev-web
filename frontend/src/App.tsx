@@ -14,14 +14,12 @@ function App() {
       try {
         const endDate = new Date();
         const startDate = new Date(endDate);
-        startDate.setDate(startDate.getDate() - 7); // Last 7 days
+        startDate.setDate(startDate.getDate() - 1); // Last 1 day
 
-        const [activeData, newData] = await Promise.all([
-          getActiveSubjects(startDate, endDate),
+        const [newData] = await Promise.all([
           getNewSubjects(startDate, endDate)
         ]);
 
-        setActiveSubjects(activeData);
         setNewSubjects(newData);
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -44,27 +42,6 @@ function App() {
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h5" gutterBottom>
-              Active Subjects
-            </Typography>
-            {activeSubjects.map((subject) => (
-              <Paper key={subject.id} sx={{ p: 2, mb: 2 }}>
-                <Typography variant="h6">{subject.subject}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  By {subject.author_name} ({subject.author_email})
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {format(new Date(subject.datetime), 'PPpp')}
-                </Typography>
-                <Typography variant="body1" sx={{ mt: 1 }}>
-                  {subject.content}
-                </Typography>
-              </Paper>
-            ))}
-          </Paper>
-        </Grid>
         <Grid item xs={12} md={6}>
           <Paper sx={{ p: 2 }}>
             <Typography variant="h5" gutterBottom>

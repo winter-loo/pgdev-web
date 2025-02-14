@@ -35,6 +35,7 @@ export const getNewSubjects = async (startDate: Date, endDate: Date): Promise<Em
     end_date: format(endDate, 'yyyy-MM-dd HH:mm:ss'),
   };
   
+  console.log(`Fetching new subjects between ${format(startDate, 'yyyy-MM-dd HH:mm:ss')} and ${format(endDate, 'yyyy-MM-dd HH:mm:ss')}`);
   const response = await axios.get(`${API_BASE_URL}/new-subjects`, { params });
   return response.data;
 };

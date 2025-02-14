@@ -522,8 +522,11 @@ fn is_thread_starter_by_id(id: &str) -> bool {
 #[tokio::main]
 async fn main() -> Result<()> {
     let app = api::create_router();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
-    println!("Server running on http://127.0.0.1:3000");
+    let ip = std::env::var("ip").unwrap_or("127.0.0.1".to_string());
+    let port = std::env::var("port").unwrap_or("3000".to_string());
+    let addr = format!("{ip}:{port}");
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    println!("Server running on http://{addr}");
     axum::serve(listener, app).await?;
     Ok(())
 }

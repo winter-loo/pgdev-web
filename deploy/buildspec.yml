@@ -1,0 +1,36 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      # Install Rust using rustup
+      - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - export PATH="$HOME/.cargo/bin:$PATH"
+      # Install additional dependencies if needed
+      # - sudo apt-get update && sudo apt-get install -y some-dependency
+
+  pre_build:
+    commands:
+      # Ensure cargo is available
+      - which cargo
+      # Print Rust version for debugging
+      - rustc --version
+      - cargo --version
+
+  build:
+    commands:
+      # Build the Rust project
+      - cargo build --release
+
+  post_build:
+    commands:
+      # Optionally run tests
+      - cargo test --release
+      # Optionally package the output (e.g., for deployment)
+      # - mkdir -p output && cp target/release/your-binary-name output/
+
+artifacts:
+  files:
+    # Include the built binary in the artifacts
+    - 'target/release/pgdevhub'
+  discard-paths: yes

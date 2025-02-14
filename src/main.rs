@@ -1,3 +1,5 @@
+mod api;
+
 use anyhow::{Context, Ok, Result};
 use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
 use const_format::concatcp;
@@ -498,41 +500,12 @@ fn is_thread_starter_by_id(id: &str) -> bool {
     get_thread_starter_id(id) == id
 }
 
-fn main() -> Result<()> {
-    use chrono::Local;
-
-    let args: Vec<_> = std::env::args().collect();
-    let get_active = args.len() == 2 && args[1] == "active";
-
-    if get_active {
-        let end_date = Local::now().naive_local();
-        let start_date = end_date - TimeDelta::days(1);
-
-        println!(
-            "Fetching all subjects under discussion from {} to {}",
-            start_date, end_date
-        );
-        let thread_emails = get_active_subjects_between(start_date, end_date)?;
-        println!("----------------------------");
-        for thread in thread_emails {
-            println!("{}", thread);
-            println!();
-        }
-    } else {
-        let end_date = Local::now().naive_local();
-        let start_date = end_date - TimeDelta::days(7);
-
-        println!(
-            "Fetching new topics for last week from {} to {}",
-            start_date, end_date
-        );
-        let thread_emails = get_new_subjects_between(start_date, end_date)?;
-        println!("----------------------------");
-        for thread in thread_emails {
-            println!("{}", thread);
-            println!();
-        }
-    }
+#[tokio::main]
+async fn main() -> Result<()> {
+    let app = api::create_router();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+    println!("Server running on http://127.0.0.1:3000");
+    axum::serve(listener, app).await?;
     Ok(())
 }
 

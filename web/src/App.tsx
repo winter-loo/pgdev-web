@@ -3,45 +3,104 @@ import { Container, Grid, Paper, Typography, CircularProgress, Button, Link } fr
 import DOMPurify from 'dompurify';
 import { format } from 'date-fns';
 import { getActiveSubjects, getNewSubjects } from './api/client';
-import type { EmailThread, EmailThreadDetail } from './api/client';
+import type { EmailThreadDetail } from './api/client';
 
-interface SubjectState {
-  id: string;
-  expanded: boolean;
+interface SubjectContentProps {
+  content: string;
 }
 
+const SubjectContent = ({ content }: SubjectContentProps) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  if (!content) return null;
+
+  return (
+    <div>
+      <Button 
+        onClick={() => setIsExpanded(!isExpanded)}
+        sx={{ mt: 1 }}
+      >
+        {isExpanded ? 'Hide Content' : 'Show Content'}
+      </Button>
+      {isExpanded && (
+        <div 
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content) }}
+        />
+      )}
+    </div>
+  );
+};
+
+const Section = ({ title, buttons, onTitleClick }: { title: string; buttons: string[]; onTitleClick: () => void }) => (
+  <div>
+    <Typography variant="h6" gutterBottom sx={{ cursor: 'pointer' }} onClick={onTitleClick}>{title}</Typography>
+    {buttons.map((label, index) => (
+      <Button key={index} fullWidth sx={{ justifyContent: 'flex-start', mb: index === buttons.length - 1 ? 3 : 1 }}>
+        {label}
+      </Button>
+    ))}
+  </div>
+);
+
+interface SubjectListProps {
+  subjects: EmailThreadDetail[];
+  loading: boolean;
+}
+
+const SubjectList = ({ subjects, loading }: SubjectListProps) => {
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+        <CircularProgress />
+      </div>
+    );
+  }
+
+  return subjects.map((subject) => (
+    <Paper key={subject.id} sx={{ p: 2, mb: 2 }}>
+      <Typography variant="h6">
+        <Link
+          href={`https://www.postgresql.org/message-id/${subject.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          underline="hover"
+          color="inherit"
+        >
+          {subject.subject}
+        </Link>
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        By {subject.author_name} ({subject.author_email})
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        {format(new Date(subject.datetime), 'PPpp')}
+      </Typography>
+      <SubjectContent content={subject.content} />
+    </Paper>
+  ));
+};
+
+const NavigationPanel = ({ onSectionChange }: { onSectionChange: (section: 'new' | 'active') => void }) => (
+  <Paper sx={{ p: 2 }}>
+    <Section 
+      title="New" 
+      buttons={['today', 'this week', 'last week', 'this month', 'last month']} 
+      onTitleClick={() => onSectionChange('new')}
+    />
+    <Section 
+      title="Active" 
+      buttons={['today', 'this week', 'last week', 'this month', 'last month']} 
+      onTitleClick={() => onSectionChange('active')}
+    />
+  </Paper>
+);
+
 function App() {
+  const [activeSection, setActiveSection] = useState<'new' | 'active'>('active');
   const [activeSubjects, setActiveSubjects] = useState<EmailThreadDetail[]>([]);
-  const [newSubjects, setNewSubjects] = useState<EmailThread[]>([]);
+  const [newSubjects, setNewSubjects] = useState<EmailThreadDetail[]>([]);
   const [loadingActive, setLoadingActive] = useState(true);
   const [loadingNew, setLoadingNew] = useState(true);
-  const [hoveredSubjectId, setHoveredSubjectId] = useState<string | null>(null);
-  const [activeSubjectStates, setActiveSubjectStates] = useState<SubjectState[]>([]);
 
-  // Initialize subject states when subjects are loaded
-  useEffect(() => {
-    setActiveSubjectStates(activeSubjects.map(subject => ({ id: subject.id, expanded: false })));
-  }, [activeSubjects]);
-
-  // Handle keyboard events
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      if (e.key === 'f') {
-        if (hoveredSubjectId) {
-          // Fold single subject
-          setActiveSubjectStates(prev => prev.map(state => 
-            state.id === hoveredSubjectId ? { ...state, expanded: false } : state
-          ));
-        } else {
-          // Fold all subjects
-          setActiveSubjectStates(prev => prev.map(state => ({ ...state, expanded: false })));
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [hoveredSubjectId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -69,116 +128,16 @@ function App() {
   }, []);
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2, minHeight: 200 }}>
-            <Typography variant="h5" gutterBottom>
-              Active Subjects
-            </Typography>
-            {loadingActive ? (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
-                <CircularProgress />
-              </div>
-            ) : (
-              activeSubjects.map((subject) => (
-                <Paper key={subject.id} sx={{ p: 2, mb: 2 }}>
-                  <Typography variant="h6">
-                    <Link
-                      href={`https://www.postgresql.com/message-id/${subject.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      underline="hover"
-                      color="inherit"
-                    >
-                      {subject.subject}
-                    </Link>
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    By {subject.author_name} ({subject.author_email})
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {format(new Date(subject.datetime), 'PPpp')}
-                  </Typography>
-                  <div>
-                    <Typography 
-                      variant="body1" 
-                      sx={{ 
-                        mt: 1,
-                        maxHeight: subject.content.length > 300 && !activeSubjectStates.find(state => state.id === subject.id)?.expanded ? '100px' : 'none',
-                        overflow: 'hidden',
-                        position: 'relative',
-                        '& .fade-overlay': {
-                          display: subject.content.length > 300 && !activeSubjectStates.find(state => state.id === subject.id)?.expanded ? 'block' : 'none',
-                          position: 'absolute',
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          height: '50px',
-                          background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)',
-                        }
-                      }} 
-                      component="div"
-                      dangerouslySetInnerHTML={{ 
-                        __html: DOMPurify.sanitize(subject.content) 
-                      }} 
-                      onMouseEnter={() => setHoveredSubjectId(subject.id)}
-                      onMouseLeave={() => setHoveredSubjectId(null)}
-                    />
-                    {subject.content.length > 300 && (
-                      <Button 
-                        onClick={() => {
-                          setActiveSubjectStates(prev => prev.map(state => 
-                            state.id === subject.id ? { ...state, expanded: !state.expanded } : state
-                          ));
-                        }}
-                        sx={{ mt: 1 }}
-                      >
-                        {activeSubjectStates.find(state => state.id === subject.id)?.expanded 
-                          ? 'Show Less' 
-                          : 'Show More'}
-                      </Button>
-                    )}
-                    <div className="fade-overlay" />
-                  </div>
-                </Paper>
-              ))
-            )}
-          </Paper>
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Grid container spacing={2}>
+        <Grid xs={3}>
+          <NavigationPanel onSectionChange={setActiveSection} />
         </Grid>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2, minHeight: 200 }}>
-            <Typography variant="h5" gutterBottom>
-              New Subjects
-            </Typography>
-            {loadingNew ? (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
-                <CircularProgress />
-              </div>
-            ) : (
-              newSubjects.map((subject) => (
-                <Paper key={subject.id} sx={{ p: 2, mb: 2 }}>
-                  <Typography variant="h6">
-                    <Link
-                      href={`https://www.postgresql.com/message-id/${subject.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      underline="hover"
-                      color="inherit"
-                    >
-                      {subject.subject}
-                    </Link>
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    By {subject.author}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {format(new Date(subject.datetime), 'PPpp')}
-                  </Typography>
-                </Paper>
-              ))
-            )}
-          </Paper>
+        <Grid xs={9}>
+          <SubjectList
+            subjects={activeSection === 'active' ? activeSubjects : newSubjects}
+            loading={loadingActive || loadingNew}
+          />
         </Grid>
       </Grid>
     </Container>

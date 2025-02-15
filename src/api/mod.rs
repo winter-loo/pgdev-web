@@ -60,8 +60,13 @@ async fn get_active_subjects(
     Query(params): Query<DateRangeQuery>,
 ) -> Json<Vec<EmailThreadDetailResponse>> {
     // if no params, axum will response with an error
-    let end_date = NaiveDateTime::parse_from_str(&params.end_date, "%Y%m%d%H%M%S").unwrap();
-    let start_date = NaiveDateTime::parse_from_str(&params.start_date, "%Y%m%d%H%M%S").unwrap();
+    let parse_date = |date_str: &str| {
+        NaiveDateTime::parse_from_str(date_str, "%Y%m%d%H%M%S")
+            .map_err(|e| format!("Failed to parse date: {}", e))
+    };
+    // TODO: when failed to parse date, axum will response with an error
+    let end_date = parse_date(&params.end_date).unwrap();
+    let start_date = parse_date(&params.start_date).unwrap();
 
     let subjects = tokio::task::spawn_blocking(move || {
         get_active_subjects_between_with_limit(start_date, end_date, 10)
@@ -78,8 +83,13 @@ async fn get_active_subjects(
 
 async fn get_new_subjects(Query(params): Query<DateRangeQuery>) -> Json<Vec<EmailThreadResponse>> {
     // if no params, axum will response with an error
-    let end_date = NaiveDateTime::parse_from_str(&params.end_date, "%Y%m%d%H%M%S").unwrap();
-    let start_date = NaiveDateTime::parse_from_str(&params.start_date, "%Y%m%d%H%M%S").unwrap();
+    let parse_date = |date_str: &str| {
+        NaiveDateTime::parse_from_str(date_str, "%Y%m%d%H%M%S")
+            .map_err(|e| format!("Failed to parse date: {}", e))
+    };
+    // TODO: when failed to parse date, axum will response with an error
+    let end_date = parse_date(&params.end_date).unwrap();
+    let start_date = parse_date(&params.start_date).unwrap();
 
     let subjects =
         tokio::task::spawn_blocking(move || get_new_subjects_between(start_date, end_date))

@@ -1,17 +1,24 @@
-# use Docker
+# build for Amazon Linux 2023
+## use Docker
 
 ```
 deploy/scripts/deploy-backend.sh
 ```
 
-## docker pull failed
+### docker pull failed
 
 see https://status.1panel.top/status/docker
 
-# use Amazon CodeBuild
+## use Amazon CodeBuild
 
 use buildspec.yml file
 
 # nginx configuration
 
 add location block in ./nginx.conf to /etc/nginx/nginx.conf
+
+# see service log
+
+```shell
+sudo journalctl -u pgdevhub -f
+```

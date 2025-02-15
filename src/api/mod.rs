@@ -1,5 +1,5 @@
 use axum::{extract::Query, routing::get, Json, Router};
-use chrono::{NaiveDateTime, TimeDelta};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 
@@ -59,10 +59,9 @@ impl From<EmailThreadDetail> for EmailThreadDetailResponse {
 async fn get_active_subjects(
     Query(params): Query<DateRangeQuery>,
 ) -> Json<Vec<EmailThreadDetailResponse>> {
-    let end_date = NaiveDateTime::parse_from_str(&params.end_date, "%Y-%m-%d %H:%M:%S")
-        .unwrap_or_else(|_| chrono::Local::now().naive_local());
-    let start_date = NaiveDateTime::parse_from_str(&params.start_date, "%Y-%m-%d %H:%M:%S")
-        .unwrap_or_else(|_| end_date - TimeDelta::days(1));
+    // if no params, axum will response with an error
+    let end_date = NaiveDateTime::parse_from_str(&params.end_date, "%Y%m%d%H%M%S").unwrap();
+    let start_date = NaiveDateTime::parse_from_str(&params.start_date, "%Y%m%d%H%M%S").unwrap();
 
     let subjects = tokio::task::spawn_blocking(move || {
         get_active_subjects_between_with_limit(start_date, end_date, 10)
@@ -78,10 +77,9 @@ async fn get_active_subjects(
 }
 
 async fn get_new_subjects(Query(params): Query<DateRangeQuery>) -> Json<Vec<EmailThreadResponse>> {
-    let end_date = NaiveDateTime::parse_from_str(&params.end_date, "%Y-%m-%d %H:%M:%S")
-        .unwrap_or_else(|_| chrono::Local::now().naive_local());
-    let start_date = NaiveDateTime::parse_from_str(&params.start_date, "%Y-%m-%d %H:%M:%S")
-        .unwrap_or_else(|_| end_date - TimeDelta::days(1));
+    // if no params, axum will response with an error
+    let end_date = NaiveDateTime::parse_from_str(&params.end_date, "%Y%m%d%H%M%S").unwrap();
+    let start_date = NaiveDateTime::parse_from_str(&params.start_date, "%Y%m%d%H%M%S").unwrap();
 
     let subjects =
         tokio::task::spawn_blocking(move || get_new_subjects_between(start_date, end_date))

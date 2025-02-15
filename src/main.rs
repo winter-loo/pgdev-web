@@ -6,6 +6,8 @@ use const_format::concatcp;
 use phf::phf_map;
 use reqwest::blocking::Client;
 use scraper::{Html, Selector};
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const PG_SITE: &str = "https://www.postgresql.org";
 const MESSAGE_URL_PREFIX: &str = concatcp!(PG_SITE, "/message-id");
@@ -26,6 +28,8 @@ static MONTHS_MAP: phf::Map<&'static str, &'static str> = phf_map! {
     "Nov." => "November",
     "Dec." => "December",
 };
+
+static TOTAL_REQUESTS: AtomicU64 = AtomicU64::new(0);
 
 fn transform_date(date_text: &str) -> Option<NaiveDate> {
     let date_text: String = date_text
@@ -172,9 +176,10 @@ fn handle_table(
             // Get subject and URL
             if let Some(a) = subject_td.select(&a_selector).next() {
                 let text = a.text().collect::<String>().trim().to_string();
-                let clean_subject = clean_subject_title(&text);
+                let subject = clean_subject_title(&text);
 
                 let href = a.value().attr("href").unwrap_or("");
+                let id = href.trim_start_matches("/message-id/").to_string();
                 let author = author_td.text().collect::<String>().trim().to_string();
                 let time_str = time_td.text().collect::<String>().trim().to_string();
                 let datetime_str = format!("{} {}", date.format("%Y-%m-%d"), time_str);
@@ -182,8 +187,8 @@ fn handle_table(
                     .unwrap_or_default();
 
                 if !handle_email_thread(EmailThread {
-                    id: href.trim_start_matches("/message-id/").to_string(),
-                    subject: clean_subject,
+                    id,
+                    subject,
                     datetime,
                     author,
                 }) {
@@ -201,10 +206,13 @@ fn get_document(url: &str) -> Result<Html> {
     let client = Client::new();
     let start_time = std::time::Instant::now();
     let response = client.get(url).send().context("Failed to fetch the page")?;
+    TOTAL_REQUESTS.fetch_add(1, Ordering::Relaxed);
     println!(
-        "get document from {url}, done, elapsed: {} ms",
-        start_time.elapsed().as_millis()
+        "{} get document from {url}, done, elapsed: {} ms",
+        TOTAL_REQUESTS.load(Ordering::Relaxed),
+        start_time.elapsed().as_millis(),
     );
+
     let body = response.text().context("Failed to get response text")?;
 
     let document = Html::parse_document(&body);
@@ -341,15 +349,26 @@ fn get_active_subjects_between_with_limit(
     end_date: NaiveDateTime,
     max_threads: usize,
 ) -> Result<Vec<EmailThreadDetail>> {
-    let mut seen_ids = std::collections::HashSet::new();
+    let mut seen_thread_starter_ids: HashSet<String> = HashSet::new();
+    // we use seen_ids to accelerate decision whether we have found the thread
+    // subject for one thread in discussion. Also, we do not need set a upper bound for the
+    // number of ids in this set as the number of threads is small in one page.
+    let mut seen_ids: HashSet<String> = HashSet::with_capacity(32);
+
     get_threads_between(start_date, end_date, |thread| {
-        let id = get_thread_starter_id(&thread.id);
-        if seen_ids.contains(&id) {
+        if seen_ids.contains(&thread.id) {
             (None, true)
         } else {
-            let t = get_thread_by_id(&id);
-            seen_ids.insert(id);
-            (Some(t), seen_ids.len() < max_threads)
+            let (id, others) = get_thread_starter_id(&thread.id, true);
+            seen_ids.extend(others.unwrap().into_iter());
+
+            if seen_thread_starter_ids.contains(&id) {
+                (None, true)
+            } else {
+                let t = get_thread_by_id(&id);
+                seen_thread_starter_ids.insert(id);
+                (Some(t), seen_thread_starter_ids.len() < max_threads)
+            }
         }
     })
 }
@@ -472,39 +491,23 @@ fn is_thread_starter(thread: &EmailThread) -> bool {
     is_thread_starter_by_id(&thread.id)
 }
 
-#[allow(unused)]
-fn get_subject_thread_id_list(id: &str) -> Result<Vec<String>> {
+fn get_thread_starter_id(id: &str, collect_all: bool) -> (String, Option<Vec<String>>) {
     let message_url = format!("{MESSAGE_URL_PREFIX}/{id}");
     let select_tag = Selector::parse("select#thread_select").unwrap();
     let option_tag = Selector::parse("option").unwrap();
 
-    get_document(&message_url)
+    let doc = get_document(&message_url)
         .context("failed to get document")
-        .unwrap()
-        .select(&select_tag)
-        .next()
-        .context("no 'select' tag in the page")
-        .and_then(|select| {
-            Ok(select
-                .select(&option_tag)
-                .map(|opt_elem| opt_elem.value().attr("value").unwrap_or("").to_string())
-                .collect::<Vec<_>>())
-        })
-}
+        .unwrap();
 
-fn get_thread_starter_id(id: &str) -> String {
-    let message_url = format!("{MESSAGE_URL_PREFIX}/{id}");
-    let select_tag = Selector::parse("select#thread_select").unwrap();
-    let option_tag = Selector::parse("option").unwrap();
-
-    get_document(&message_url)
-        .context("failed to get document")
-        .unwrap()
+    let mut options_elem = doc
         .select(&select_tag)
         .next()
         .context("no 'select' tag in the page")
         .unwrap()
-        .select(&option_tag)
+        .select(&option_tag);
+
+    let starter_id = options_elem
         .next()
         .context("no 'option' tag in 'select' tag")
         .unwrap()
@@ -512,11 +515,24 @@ fn get_thread_starter_id(id: &str) -> String {
         .attr("value")
         .map(|value| value.to_string())
         .context("no 'value' tag in the 'option' tag")
-        .unwrap()
+        .unwrap();
+
+    if collect_all {
+        let mut thread_id_list = Vec::new();
+        thread_id_list.push(starter_id.clone());
+        for opt_elem in options_elem {
+            if let Some(value) = opt_elem.value().attr("value") {
+                thread_id_list.push(value.to_string());
+            }
+        }
+        (starter_id, Some(thread_id_list))
+    } else {
+        (starter_id, None)
+    }
 }
 
 fn is_thread_starter_by_id(id: &str) -> bool {
-    get_thread_starter_id(id) == id
+    get_thread_starter_id(id, false).0 == id
 }
 
 #[tokio::main]
@@ -536,6 +552,8 @@ mod test {
     use super::*;
 
     #[test]
+    // we add this due to the get_active_threads test
+    #[serial_test::parallel]
     fn test1() {
         // has Chinese ':' in the subject title, like this: 'Re：Limit length of queryies in pg_stat_statement extension'
         let start_day = "20250118";
@@ -554,6 +572,7 @@ mod test {
     }
 
     #[test]
+    #[serial_test::parallel]
     fn test2() {
         // has Re: in subject title, like this: 'Fwd: Re: A new look at old NFS readdir() problems?'
         let start_day = "20250102";
@@ -574,6 +593,7 @@ mod test {
     }
 
     #[test]
+    #[serial_test::parallel]
     fn test3() {
         // has unicode emoji and '\n' in the subject title
         let start_day = "20250106";
@@ -594,6 +614,7 @@ mod test {
     }
 
     #[test]
+    #[serial_test::parallel]
     fn test4() {
         let start_day = "20240104";
         let start_date = NaiveDate::parse_from_str(&start_day, "%Y%m%d").unwrap();
@@ -629,6 +650,7 @@ mod test {
     }
 
     #[test]
+    #[serial_test::parallel]
     fn get_email_thread_detail() {
         let detail = get_thread_by_id(
             "CAHv8RjKhA%3D_h5vAbozzJ1Opnv%3DKXYQHQ-fJyaMfqfRqPpnC2bA%40mail.gmail.com",
@@ -657,16 +679,18 @@ mod test {
     }
 
     #[test]
+    #[serial_test::serial]
     fn get_active_subjects() {
-        let start_date = "20250214-0800";
-        let end_date = "20250214-0840";
+        let start_date = "20250214-2242";
+        let end_date = "20250215-2242";
         let start_date = NaiveDateTime::parse_from_str(&start_date, "%Y%m%d-%H%M").unwrap();
         let end_date = NaiveDateTime::parse_from_str(&end_date, "%Y%m%d-%H%M").unwrap();
-        let thread_emails = get_active_subjects_between(start_date, end_date).unwrap();
-        assert_eq!(thread_emails.len(), 5);
 
+        TOTAL_REQUESTS.store(0, Ordering::Relaxed);
+        let max_threads = 3;
         let thread_emails =
-            get_active_subjects_between_with_limit(start_date, end_date, 1).unwrap();
-        assert_eq!(thread_emails.len(), 1);
+            get_active_subjects_between_with_limit(start_date, end_date, max_threads).unwrap();
+        assert_eq!(thread_emails.len(), max_threads);
+        assert_eq!(TOTAL_REQUESTS.load(Ordering::Relaxed) as usize, max_threads * 2 + 1);
     }
 }

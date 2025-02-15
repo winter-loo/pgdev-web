@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Container, Grid, Paper, Typography, CircularProgress, Button, Link } from '@mui/material';
 import DOMPurify from 'dompurify';
-import { format } from 'date-fns';
+import { format, startOfToday, endOfToday, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { getActiveSubjects, getNewSubjects } from './api/client';
 import type { EmailThreadDetail } from './api/client';
 
@@ -30,12 +30,77 @@ const SubjectContent = ({ content }: SubjectContentProps) => {
   );
 };
 
-const Section = ({ title, buttons, onTitleClick }: { title: string; buttons: string[]; onTitleClick: () => void }) => (
+interface TimeRange {
+  label: string;
+  getRange: () => { startDate: Date; endDate: Date };
+}
+
+const timeRanges: TimeRange[] = [
+  {
+    label: 'today',
+    getRange: () => ({
+      startDate: startOfToday(),
+      endDate: endOfToday()
+    })
+  },
+  {
+    label: 'this week',
+    getRange: () => ({
+      startDate: startOfWeek(new Date(), { weekStartsOn: 1 }),
+      endDate: endOfWeek(new Date(), { weekStartsOn: 1 })
+    })
+  },
+  {
+    label: 'last week',
+    getRange: () => {
+      const lastWeek = subWeeks(new Date(), 1);
+      return {
+        startDate: startOfWeek(lastWeek, { weekStartsOn: 1 }),
+        endDate: endOfWeek(lastWeek, { weekStartsOn: 1 })
+      };
+    }
+  },
+  {
+    label: 'this month',
+    getRange: () => ({
+      startDate: startOfMonth(new Date()),
+      endDate: endOfMonth(new Date())
+    })
+  },
+  {
+    label: 'last month',
+    getRange: () => {
+      const lastMonth = subMonths(new Date(), 1);
+      return {
+        startDate: startOfMonth(lastMonth),
+        endDate: endOfMonth(lastMonth)
+      };
+    }
+  }
+];
+
+const Section = ({ 
+  title, 
+  onTitleClick, 
+  onTimeRangeSelect
+}: { 
+  title: string; 
+  onTitleClick: () => void;
+  onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
+}) => (
   <div>
     <Typography variant="h6" gutterBottom sx={{ cursor: 'pointer' }} onClick={onTitleClick}>{title}</Typography>
-    {buttons.map((label, index) => (
-      <Button key={index} fullWidth sx={{ justifyContent: 'flex-start', mb: index === buttons.length - 1 ? 3 : 1 }}>
-        {label}
+    {timeRanges.map((range, index) => (
+      <Button 
+        key={range.label} 
+        fullWidth 
+        sx={{ justifyContent: 'flex-start', mb: index === timeRanges.length - 1 ? 3 : 1 }}
+        onClick={() => {
+          onTitleClick();
+          onTimeRangeSelect(range.getRange());
+        }}
+      >
+        {range.label}
       </Button>
     ))}
   </div>
@@ -79,64 +144,75 @@ const SubjectList = ({ subjects, loading }: SubjectListProps) => {
   ));
 };
 
-const NavigationPanel = ({ onSectionChange }: { onSectionChange: (section: 'new' | 'active') => void }) => (
+const NavigationPanel = ({ 
+  onSectionSelect,
+  onTimeRangeSelect
+}: { 
+  onSectionSelect: (section: 'new' | 'active') => void;
+  onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
+}) => (
   <Paper sx={{ p: 2 }}>
     <Section 
       title="New" 
-      buttons={['today', 'this week', 'last week', 'this month', 'last month']} 
-      onTitleClick={() => onSectionChange('new')}
+      onTitleClick={() => onSectionSelect('new')}
+      onTimeRangeSelect={onTimeRangeSelect}
     />
     <Section 
       title="Active" 
-      buttons={['today', 'this week', 'last week', 'this month', 'last month']} 
-      onTitleClick={() => onSectionChange('active')}
+      onTitleClick={() => onSectionSelect('active')}
+      onTimeRangeSelect={onTimeRangeSelect}
     />
   </Paper>
 );
 
 function App() {
-  const [activeSection, setActiveSection] = useState<'new' | 'active'>('active');
+  const [selectedSection, setSelectedSection] = useState<'new' | 'active'>('new');
   const [activeSubjects, setActiveSubjects] = useState<EmailThreadDetail[]>([]);
   const [newSubjects, setNewSubjects] = useState<EmailThreadDetail[]>([]);
   const [loadingActive, setLoadingActive] = useState(true);
   const [loadingNew, setLoadingNew] = useState(true);
+  const [dateRange, setDateRange] = useState(() => timeRanges[0].getRange());
 
+  const handleTimeRangeSelect = (range: { startDate: Date; endDate: Date }) => {
+    setDateRange(range);
+  };
 
+  // Fetch data when date range changes
   useEffect(() => {
     const controller = new AbortController();
 
-    const fetchData = async () => {
-      const endDate = new Date();
-      const startDate = new Date(endDate);
-      startDate.setDate(startDate.getDate() - 1);
-
-      // Fetch active subjects
-      getActiveSubjects(startDate, endDate)
+    if (selectedSection === 'active') {
+      setLoadingActive(true);
+      console.log("fetching active subjects");
+      getActiveSubjects(dateRange.startDate, dateRange.endDate)
         .then(setActiveSubjects)
         .catch(error => console.error('Error fetching active subjects:', error))
         .finally(() => setLoadingActive(false));
-
-      // Fetch new subjects
-      getNewSubjects(startDate, endDate)
+    } else {
+      setLoadingNew(true);
+      console.log("fetching new subjects");
+      getNewSubjects(dateRange.startDate, dateRange.endDate)
         .then(setNewSubjects)
         .catch(error => console.error('Error fetching new subjects:', error))
         .finally(() => setLoadingNew(false));
-    };
+    }
 
-    fetchData();
-    return () => controller.abort(); // Cancel request on unmount
-  }, []);
+    return () => controller.abort();
+  }, [dateRange, selectedSection]);
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
       <Grid container spacing={2}>
         <Grid xs={3}>
-          <NavigationPanel onSectionChange={setActiveSection} />
+          <NavigationPanel 
+            onSectionSelect={setSelectedSection}
+            onTimeRangeSelect={handleTimeRangeSelect}
+          />
         </Grid>
         <Grid xs={9}>
           <SubjectList
-            subjects={activeSection === 'active' ? activeSubjects : newSubjects}
-            loading={loadingActive || loadingNew}
+            subjects={selectedSection === 'active' ? activeSubjects : newSubjects}
+            loading={selectedSection === 'active' ? loadingActive : loadingNew}
           />
         </Grid>
       </Grid>

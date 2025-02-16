@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Paper, Typography, CircularProgress, Button, Link, Box, Stack } from '@mui/material';
 import DOMPurify from 'dompurify';
-import { format, startOfToday, endOfToday, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import { format, startOfToday, endOfToday, startOfWeek as __startOfWeek, endOfWeek as __endOfWeek, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { getActiveSubjects, getNewSubjects } from './api/client';
 import type { EmailThreadDetail } from './api/client';
 
@@ -84,8 +84,8 @@ const timeRanges: TimeRange[] = [
   {
     label: 'this week',
     getRange: () => ({
-      startDate: startOfWeek(new Date(), { weekStartsOn: 1 }),
-      endDate: endOfWeek(new Date(), { weekStartsOn: 1 })
+      startDate: startOfWeek(new Date()),
+      endDate: endOfWeek(new Date())
     })
   },
   {
@@ -93,8 +93,8 @@ const timeRanges: TimeRange[] = [
     getRange: () => {
       const lastWeek = subWeeks(new Date(), 1);
       return {
-        startDate: startOfWeek(lastWeek, { weekStartsOn: 1 }),
-        endDate: endOfWeek(lastWeek, { weekStartsOn: 1 })
+        startDate: startOfWeek(lastWeek),
+        endDate: endOfWeek(lastWeek)
       };
     }
   },
@@ -163,12 +163,7 @@ const TimeRangeSection = ({
   </div>
 );
 
-interface NavigationSectionProps {
-  isSelected?: boolean;
-  onSelect?: () => void;
-}
-
-interface TimeRangeSectionProps extends NavigationSectionProps {
+interface TimeRangeSectionProps {
   currentDateRange: { startDate: Date; endDate: Date };
   onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
 }
@@ -176,41 +171,42 @@ interface TimeRangeSectionProps extends NavigationSectionProps {
 const TimeRangeSectionComponent = ({
   onTimeRangeSelect,
   currentDateRange,
-  isSelected
-}: TimeRangeSectionProps) => (
-  <div>
-    {timeRanges.map((range, index) => (
-      <Button
-        key={range.label}
-        fullWidth
-        sx={{
-          justifyContent: 'flex-start',
-          mb: index === timeRanges.length - 1 ? 3 : 1,
-          color: isTimeRangeEqual(range.getRange(), currentDateRange) ? '#1976d2' : 'inherit',
-          display: !isSelected ? 'none' : 'flex'
-        }}
-        onClick={() => onTimeRangeSelect(range.getRange())}
-      >
-        {range.label}
-      </Button>
-    ))}
-  </div>
-);
+}: TimeRangeSectionProps) => {
+  const { navItemSelected, onNavItemSelected, navItemTitle } = React.useContext(NavigationContext);
+
+  return (
+    <div>
+      {timeRanges.map((range, index) => (
+        <Button
+          key={range.label}
+          fullWidth
+          sx={{
+            justifyContent: 'flex-start',
+            mb: index === timeRanges.length - 1 ? 3 : 1,
+            color: (navItemSelected && isTimeRangeEqual(range.getRange(), currentDateRange)) ? '#1976d2' : 'inherit',
+          }}
+          onClick={() => {
+            onTimeRangeSelect(range.getRange());
+            onNavItemSelected?.(navItemTitle || '')
+          }}
+        >
+          {range.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
 
 const NewSubjectsSection = ({
-  isSelected,
-  onSelect,
   onWillLoad,
   onDidLoad
 }: {
-  isSelected?: boolean;
-  onSelect?: () => void;
   onWillLoad?: () => void;
   onDidLoad?: (subjects: EmailThreadDetail[]) => void;
 }) => {
   const [currentDateRange, setCurrentDateRange] = useState<{ startDate: Date; endDate: Date }>({
-    startDate: startOfToday(),
-    endDate: endOfToday()
+    startDate: startOfWeek(new Date()),
+    endDate: endOfWeek(new Date())
   });
 
   // Fetch data when date range changes
@@ -233,29 +229,23 @@ const NewSubjectsSection = ({
   }, [currentDateRange]);
 
   return (
-      <TimeRangeSectionComponent
-        currentDateRange={currentDateRange}
-        onTimeRangeSelect={setCurrentDateRange}
-        isSelected={isSelected}
-        onSelect={onSelect}
-      />
+    <TimeRangeSectionComponent
+      currentDateRange={currentDateRange}
+      onTimeRangeSelect={setCurrentDateRange}
+    />
   );
 };
 
 const ActiveSubjectsSection = ({
-  isSelected,
-  onSelect,
   onWillLoad,
-  onDidLoad
+  onDidLoad,
 }: {
-  isSelected?: boolean;
-  onSelect?: () => void;
   onWillLoad?: () => void;
   onDidLoad?: (subjects: EmailThreadDetail[]) => void;
 }) => {
   const [currentDateRange, setCurrentDateRange] = useState<{ startDate: Date; endDate: Date }>({
-    startDate: startOfWeek(new Date()),
-    endDate: endOfWeek(new Date())
+    startDate: startOfToday(),
+    endDate: endOfToday()
   });
 
   // Fetch data when date range changes
@@ -280,93 +270,106 @@ const ActiveSubjectsSection = ({
     <TimeRangeSectionComponent
       currentDateRange={currentDateRange}
       onTimeRangeSelect={setCurrentDateRange}
-      isSelected={isSelected}
-      onSelect={onSelect}
     />
   );
 };
 
-// Helper function to compare time ranges
+// Helper functions
+const startOfWeek = (date: Date = new Date()) => __startOfWeek(date, { weekStartsOn: 1 });
+const endOfWeek = (date: Date = new Date()) => __endOfWeek(date, { weekStartsOn: 1 });
+
 const isTimeRangeEqual = (range1: { startDate: Date; endDate: Date }, range2: { startDate: Date; endDate: Date }) => {
   return range1.startDate.getTime() === range2.startDate.getTime() &&
     range1.endDate.getTime() === range2.endDate.getTime();
 };
 
 const NavigationPanel = ({
-  onSectionSelect,
-  selectedSection,
   onWillLoadSubject,
   onDidLoadSubject
 }: {
-  onSectionSelect: (section: string) => void;
-  selectedSection: string;
   onWillLoadSubject: () => void;
   onDidLoadSubject: (subjects: EmailThreadDetail[]) => void;
-}) => (
-  <Paper sx={{ p: 2 }}>
+}) => {
+  const [selectedItem, setSelectedItem] = useState<string | null>("New");
+
+  return (<Paper sx={{ p: 2 }}>
     <Stack spacing={3}>
       <NavigationItem
         title="New"
-        isSelected={selectedSection === 'new'}
-        onSelect={onSectionSelect}
+        expanded
+        selected={selectedItem === 'New'}
+        onClick={setSelectedItem}
       >
         <NewSubjectsSection onWillLoad={onWillLoadSubject} onDidLoad={onDidLoadSubject} />
       </NavigationItem>
       <NavigationItem
         title="Active"
-        isSelected={selectedSection === 'active'}
-        onSelect={onSectionSelect}
+        selected={selectedItem === 'Active'}
+        onClick={setSelectedItem}
       >
         <ActiveSubjectsSection onWillLoad={onWillLoadSubject} onDidLoad={onDidLoadSubject} />
       </NavigationItem>
     </Stack>
-  </Paper>
-);
+  </Paper>);
+};
+
+interface NavigationContextType {
+  navItemSelected?: boolean;
+  onNavItemSelected?: (title: string) => void;
+  navItemTitle?: string;
+}
+
+const NavigationContext = React.createContext<NavigationContextType>({ navItemSelected: false, onNavItemSelected: undefined, navItemTitle: undefined });
 
 interface NavigationItemProps {
   title: string;
-  isSelected?: boolean;
-  onSelect?: (title: string) => void;
-  children: React.ReactElement<NavigationSectionProps>;
+  expanded?: boolean;
+  selected?: boolean;
+  onClick?: (item: string) => void;
+  children: React.ReactElement;
 }
 
 const NavigationItem = ({
   title,
-  isSelected,
-  onSelect,
+  // when selected, we need add hint to the user
+  selected,
+  // when selected, the user can toggle the expansion
+  expanded,
+  onClick,
   children
 }: NavigationItemProps) => {
+  const [isExpanded, setIsExpanded] = useState(expanded);
+
   const handleSelect = () => {
-    onSelect?.(title);
+    setIsExpanded(!isExpanded);
+    onClick?.(title);
   };
 
   return (
-      <Box>
-        {/* navigation item title */ }
-        <Typography
-          variant="h6"
-          gutterBottom
-          sx={{
-            cursor: 'pointer',
-            color: isSelected ? '#1976d2' : 'inherit'
-          }}
-          onClick={handleSelect}
-        >
-          {title}
-        </Typography>
-        {/* navigation item content */}
-        {React.isValidElement(children) &&
-          React.cloneElement(children, {
-            isSelected,
-            onSelect: handleSelect
-          })
-        }
-      </Box>
+    <Box>
+      {/* navigation item title */}
+      <Typography
+        variant="h6"
+        gutterBottom
+        sx={{
+          cursor: 'pointer',
+          color: selected ? '#1976d2' : 'inherit'
+        }}
+        onClick={handleSelect}
+      >
+        {title}
+      </Typography>
+      {/* navigation item content */}
+      <NavigationContext.Provider value={{ navItemSelected: selected, onNavItemSelected: onClick, navItemTitle: title }}>
+        <Box sx={{ display: isExpanded ? 'block' : 'none' }}>
+          {React.isValidElement(children) && React.cloneElement(children)}
+        </Box>
+      </NavigationContext.Provider>
+    </Box>
   );
 };
 
 function App() {
-  const [selectedSection, setSelectedSection] = useState<string>('new');
   const [subjects, setSubjects] = useState<EmailThreadDetail[]>([]);
   const [loadingSubjects, setLoadingSubjects] = useState<boolean>(false);
 
@@ -385,8 +388,6 @@ function App() {
           }}
         >
           <NavigationPanel
-            onSectionSelect={setSelectedSection}
-            selectedSection={selectedSection}
             onWillLoadSubject={
               () => {
                 setLoadingSubjects(true);

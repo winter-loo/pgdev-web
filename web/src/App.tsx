@@ -83,9 +83,9 @@ interface TimeRangeSection {
   id: string;
   title: string;
   currentDateRange: { startDate: Date; endDate: Date };
-  onSelect: () => void;
+  onSelect?: () => void;
   onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
-  isSelected: boolean;
+  isSelected?: boolean;
 }
 
 const TimeRangeSection = ({ 
@@ -95,6 +95,55 @@ const TimeRangeSection = ({
   currentDateRange,
   isSelected
 }: TimeRangeSection) => (
+  <div>
+    <Typography 
+      variant="h6" 
+      gutterBottom 
+      sx={{ 
+        cursor: 'pointer',
+        color: isSelected ? '#1976d2' : 'inherit'
+      }} 
+      onClick={onSelect}
+    >
+      {title}
+    </Typography>
+    {timeRanges.map((range, index) => (
+      <Button 
+        key={range.label} 
+        fullWidth 
+        sx={{ 
+          justifyContent: 'flex-start', 
+          mb: index === timeRanges.length - 1 ? 3 : 1,
+          color: isTimeRangeEqual(range.getRange(), currentDateRange) ? '#1976d2' : 'inherit',
+          display: !isSelected ? 'none' : 'flex'
+        }}
+        onClick={() => onTimeRangeSelect(range.getRange())}
+      >
+        {range.label}
+      </Button>
+    ))}
+  </div>
+);
+
+interface NavigationSectionProps {
+  isSelected?: boolean;
+  onSelect?: () => void;
+}
+
+interface TimeRangeSectionProps extends NavigationSectionProps {
+  id: string;
+  title: string;
+  currentDateRange: { startDate: Date; endDate: Date };
+  onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
+}
+
+const TimeRangeSectionComponent = ({ 
+  title, 
+  onSelect, 
+  onTimeRangeSelect,
+  currentDateRange,
+  isSelected
+}: TimeRangeSectionProps) => (
   <div>
     <Typography 
       variant="h6" 
@@ -161,7 +210,7 @@ const NewSubjectsSection = ({
   }, [currentDateRange]);
 
   return (
-    <TimeRangeSection
+    <TimeRangeSectionComponent
       id="new"
       title="New"
       currentDateRange={currentDateRange}
@@ -207,7 +256,7 @@ const ActiveSubjectsSection = ({
   }, [currentDateRange]);
 
   return (
-    <TimeRangeSection
+    <TimeRangeSectionComponent
       id="active"
       title="Active"
       currentDateRange={currentDateRange}
@@ -264,9 +313,9 @@ const isTimeRangeEqual = (range1: { startDate: Date; endDate: Date }, range2: { 
 
 interface NavigationItemProps {
   id: string;
-  isSelected: boolean;
-  onSelect: (id: string) => void;
-  children: React.ReactNode;
+  isSelected?: boolean;
+  onSelect?: (id: string) => void;
+  children: React.ReactElement<NavigationSectionProps>;
 }
 
 const NavigationItem = ({
@@ -276,17 +325,17 @@ const NavigationItem = ({
   children
 }: NavigationItemProps) => {
   const handleSelect = () => {
-    onSelect(id);
+    onSelect?.(id);
   };
 
   return (
     <Box onClick={handleSelect}>
-      {React.Children.map(children, child => {
-        if (React.isValidElement(child)) {
-          return React.cloneElement(child, { isSelected, onSelect: handleSelect });
-        }
-        return child;
-      })}
+      {React.isValidElement(children) && 
+        React.cloneElement(children, { 
+          isSelected, 
+          onSelect: handleSelect 
+        })
+      }
     </Box>
   );
 };

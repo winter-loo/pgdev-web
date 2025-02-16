@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Grid, Paper, Typography, CircularProgress, Button, Link, Box, Stack } from '@mui/material';
+import { Container, Paper, Typography, CircularProgress, Button, Link, Box, Stack } from '@mui/material';
 import DOMPurify from 'dompurify';
 import { format, startOfToday, endOfToday, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { getActiveSubjects, getNewSubjects } from './api/client';
@@ -15,19 +15,57 @@ const SubjectContent = ({ content }: SubjectContentProps) => {
 
   return (
     <div>
-      <Button 
+      <Button
         onClick={() => setIsExpanded(!isExpanded)}
         sx={{ mt: 1 }}
       >
         {isExpanded ? 'Hide Content' : 'Show Content'}
       </Button>
       {isExpanded && (
-        <div 
+        <div
           dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content) }}
         />
       )}
     </div>
   );
+};
+
+interface SubjectListProps {
+  subjects: EmailThreadDetail[];
+  loading: boolean;
+}
+
+const SubjectList = ({ subjects, loading }: SubjectListProps) => {
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+        <CircularProgress />
+      </div>
+    );
+  }
+
+  return subjects.map((subject) => (
+    <Paper key={subject.id} sx={{ p: 2, mb: 2 }}>
+      <Typography variant="h6">
+        <Link
+          href={`https://www.postgresql.org/message-id/${subject.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          underline="hover"
+          color="inherit"
+        >
+          {subject.subject}
+        </Link>
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        By {subject.author_name} ({subject.author_email})
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        {format(new Date(subject.datetime), 'PPpp')}
+      </Typography>
+      <SubjectContent content={subject.content} />
+    </Paper>
+  ));
 };
 
 interface TimeRange {
@@ -88,31 +126,31 @@ interface TimeRangeSection {
   isSelected?: boolean;
 }
 
-const TimeRangeSection = ({ 
-  title, 
-  onSelect, 
+const TimeRangeSection = ({
+  title,
+  onSelect,
   onTimeRangeSelect,
   currentDateRange,
   isSelected
 }: TimeRangeSection) => (
   <div>
-    <Typography 
-      variant="h6" 
-      gutterBottom 
-      sx={{ 
+    <Typography
+      variant="h6"
+      gutterBottom
+      sx={{
         cursor: 'pointer',
         color: isSelected ? '#1976d2' : 'inherit'
-      }} 
+      }}
       onClick={onSelect}
     >
       {title}
     </Typography>
     {timeRanges.map((range, index) => (
-      <Button 
-        key={range.label} 
-        fullWidth 
-        sx={{ 
-          justifyContent: 'flex-start', 
+      <Button
+        key={range.label}
+        fullWidth
+        sx={{
+          justifyContent: 'flex-start',
           mb: index === timeRanges.length - 1 ? 3 : 1,
           color: isTimeRangeEqual(range.getRange(), currentDateRange) ? '#1976d2' : 'inherit',
           display: !isSelected ? 'none' : 'flex'
@@ -131,37 +169,22 @@ interface NavigationSectionProps {
 }
 
 interface TimeRangeSectionProps extends NavigationSectionProps {
-  id: string;
-  title: string;
   currentDateRange: { startDate: Date; endDate: Date };
   onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
 }
 
-const TimeRangeSectionComponent = ({ 
-  title, 
-  onSelect, 
+const TimeRangeSectionComponent = ({
   onTimeRangeSelect,
   currentDateRange,
   isSelected
 }: TimeRangeSectionProps) => (
   <div>
-    <Typography 
-      variant="h6" 
-      gutterBottom 
-      sx={{ 
-        cursor: 'pointer',
-        color: isSelected ? '#1976d2' : 'inherit'
-      }} 
-      onClick={onSelect}
-    >
-      {title}
-    </Typography>
     {timeRanges.map((range, index) => (
-      <Button 
-        key={range.label} 
-        fullWidth 
-        sx={{ 
-          justifyContent: 'flex-start', 
+      <Button
+        key={range.label}
+        fullWidth
+        sx={{
+          justifyContent: 'flex-start',
           mb: index === timeRanges.length - 1 ? 3 : 1,
           color: isTimeRangeEqual(range.getRange(), currentDateRange) ? '#1976d2' : 'inherit',
           display: !isSelected ? 'none' : 'flex'
@@ -210,14 +233,12 @@ const NewSubjectsSection = ({
   }, [currentDateRange]);
 
   return (
-    <TimeRangeSectionComponent
-      id="new"
-      title="New"
-      currentDateRange={currentDateRange}
-      onTimeRangeSelect={setCurrentDateRange}
-      isSelected={isSelected}
-      onSelect={onSelect}
-    />
+      <TimeRangeSectionComponent
+        currentDateRange={currentDateRange}
+        onTimeRangeSelect={setCurrentDateRange}
+        isSelected={isSelected}
+        onSelect={onSelect}
+      />
   );
 };
 
@@ -257,8 +278,6 @@ const ActiveSubjectsSection = ({
 
   return (
     <TimeRangeSectionComponent
-      id="active"
-      title="Active"
       currentDateRange={currentDateRange}
       onTimeRangeSelect={setCurrentDateRange}
       isSelected={isSelected}
@@ -267,85 +286,18 @@ const ActiveSubjectsSection = ({
   );
 };
 
-interface SubjectListProps {
-  subjects: EmailThreadDetail[];
-  loading: boolean;
-}
-
-const SubjectList = ({ subjects, loading }: SubjectListProps) => {
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
-        <CircularProgress />
-      </div>
-    );
-  }
-
-  return subjects.map((subject) => (
-    <Paper key={subject.id} sx={{ p: 2, mb: 2 }}>
-      <Typography variant="h6">
-        <Link
-          href={`https://www.postgresql.org/message-id/${subject.id}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          underline="hover"
-          color="inherit"
-        >
-          {subject.subject}
-        </Link>
-      </Typography>
-      <Typography variant="body2" color="text.secondary">
-        By {subject.author_name} ({subject.author_email})
-      </Typography>
-      <Typography variant="body2" color="text.secondary">
-        {format(new Date(subject.datetime), 'PPpp')}
-      </Typography>
-      <SubjectContent content={subject.content} />
-    </Paper>
-  ));
-};
-
 // Helper function to compare time ranges
 const isTimeRangeEqual = (range1: { startDate: Date; endDate: Date }, range2: { startDate: Date; endDate: Date }) => {
   return range1.startDate.getTime() === range2.startDate.getTime() &&
-         range1.endDate.getTime() === range2.endDate.getTime();
+    range1.endDate.getTime() === range2.endDate.getTime();
 };
 
-interface NavigationItemProps {
-  id: string;
-  isSelected?: boolean;
-  onSelect?: (id: string) => void;
-  children: React.ReactElement<NavigationSectionProps>;
-}
-
-const NavigationItem = ({
-  id,
-  isSelected,
-  onSelect,
-  children
-}: NavigationItemProps) => {
-  const handleSelect = () => {
-    onSelect?.(id);
-  };
-
-  return (
-    <Box onClick={handleSelect}>
-      {React.isValidElement(children) && 
-        React.cloneElement(children, { 
-          isSelected, 
-          onSelect: handleSelect 
-        })
-      }
-    </Box>
-  );
-};
-
-const NavigationPanel = ({ 
+const NavigationPanel = ({
   onSectionSelect,
   selectedSection,
   onWillLoadSubject,
   onDidLoadSubject
-}: { 
+}: {
   onSectionSelect: (section: string) => void;
   selectedSection: string;
   onWillLoadSubject: () => void;
@@ -354,14 +306,14 @@ const NavigationPanel = ({
   <Paper sx={{ p: 2 }}>
     <Stack spacing={3}>
       <NavigationItem
-        id="new"
+        title="New"
         isSelected={selectedSection === 'new'}
         onSelect={onSectionSelect}
       >
         <NewSubjectsSection onWillLoad={onWillLoadSubject} onDidLoad={onDidLoadSubject} />
       </NavigationItem>
       <NavigationItem
-        id="active"
+        title="Active"
         isSelected={selectedSection === 'active'}
         onSelect={onSectionSelect}
       >
@@ -370,6 +322,48 @@ const NavigationPanel = ({
     </Stack>
   </Paper>
 );
+
+interface NavigationItemProps {
+  title: string;
+  isSelected?: boolean;
+  onSelect?: (title: string) => void;
+  children: React.ReactElement<NavigationSectionProps>;
+}
+
+const NavigationItem = ({
+  title,
+  isSelected,
+  onSelect,
+  children
+}: NavigationItemProps) => {
+  const handleSelect = () => {
+    onSelect?.(title);
+  };
+
+  return (
+      <Box>
+        {/* navigation item title */ }
+        <Typography
+          variant="h6"
+          gutterBottom
+          sx={{
+            cursor: 'pointer',
+            color: isSelected ? '#1976d2' : 'inherit'
+          }}
+          onClick={handleSelect}
+        >
+          {title}
+        </Typography>
+        {/* navigation item content */}
+        {React.isValidElement(children) &&
+          React.cloneElement(children, {
+            isSelected,
+            onSelect: handleSelect
+          })
+        }
+      </Box>
+  );
+};
 
 function App() {
   const [selectedSection, setSelectedSection] = useState<string>('new');
@@ -380,9 +374,9 @@ function App() {
     <Container maxWidth="xl" sx={{ py: 4 }}>
       <Box sx={{ display: 'flex', gap: 2, height: 'calc(100vh - 64px)' }}>
         {/* Fixed left navigation panel */}
-        <Box 
-          sx={{ 
-            width: '25%', 
+        <Box
+          sx={{
+            width: '25%',
             position: 'sticky',
             top: '64px',
             height: 'fit-content',
@@ -390,7 +384,7 @@ function App() {
             overflowY: 'auto'
           }}
         >
-          <NavigationPanel 
+          <NavigationPanel
             onSectionSelect={setSelectedSection}
             selectedSection={selectedSection}
             onWillLoadSubject={
@@ -408,8 +402,8 @@ function App() {
         </Box>
 
         {/* Scrollable content area */}
-        <Box 
-          sx={{ 
+        <Box
+          sx={{
             width: '75%',
             overflowY: 'auto',
             maxHeight: 'calc(100vh - 96px)'

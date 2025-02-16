@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Container, Grid, Paper, Typography, CircularProgress, Button, Link, Box } from '@mui/material';
+import React, { useState, useEffect } from 'react';
+import { Container, Grid, Paper, Typography, CircularProgress, Button, Link, Box, Stack } from '@mui/material';
 import DOMPurify from 'dompurify';
 import { format, startOfToday, endOfToday, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { getActiveSubjects, getNewSubjects } from './api/client';
@@ -79,32 +79,99 @@ const timeRanges: TimeRange[] = [
   }
 ];
 
-const Section = ({ 
-  title, 
-  onTitleClick, 
-  onTimeRangeSelect
-}: { 
-  title: string; 
-  onTitleClick: () => void;
+interface TimeRangeSection {
+  id: string;
+  title: string;
+  currentDateRange: { startDate: Date; endDate: Date };
+  onSelect: () => void;
   onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
-}) => (
+  isSelected: boolean;
+}
+
+const TimeRangeSection = ({ 
+  title, 
+  onSelect, 
+  onTimeRangeSelect,
+  currentDateRange,
+  isSelected
+}: TimeRangeSection) => (
   <div>
-    <Typography variant="h6" gutterBottom sx={{ cursor: 'pointer' }} onClick={onTitleClick}>{title}</Typography>
+    <Typography 
+      variant="h6" 
+      gutterBottom 
+      sx={{ 
+        cursor: 'pointer',
+        color: isSelected ? '#1976d2' : 'inherit'
+      }} 
+      onClick={onSelect}
+    >
+      {title}
+    </Typography>
     {timeRanges.map((range, index) => (
       <Button 
         key={range.label} 
         fullWidth 
-        sx={{ justifyContent: 'flex-start', mb: index === timeRanges.length - 1 ? 3 : 1 }}
-        onClick={() => {
-          onTitleClick();
-          onTimeRangeSelect(range.getRange());
+        sx={{ 
+          justifyContent: 'flex-start', 
+          mb: index === timeRanges.length - 1 ? 3 : 1,
+          color: isTimeRangeEqual(range.getRange(), currentDateRange) ? '#1976d2' : 'inherit',
+          display: !isSelected ? 'none' : 'flex'
         }}
+        onClick={() => onTimeRangeSelect(range.getRange())}
       >
         {range.label}
       </Button>
     ))}
   </div>
 );
+
+const NewSubjectsSection = ({
+  isSelected,
+  onSelect
+}: {
+  isSelected?: boolean;
+  onSelect?: () => void;
+}) => {
+  const [currentDateRange, setCurrentDateRange] = useState<{ startDate: Date; endDate: Date }>({
+    startDate: startOfToday(),
+    endDate: endOfToday()
+  });
+
+  return (
+    <TimeRangeSection
+      id="new"
+      title="New"
+      currentDateRange={currentDateRange}
+      onTimeRangeSelect={setCurrentDateRange}
+      isSelected={isSelected}
+      onSelect={onSelect}
+    />
+  );
+};
+
+const ActiveSubjectsSection = ({
+  isSelected,
+  onSelect
+}: {
+  isSelected?: boolean;
+  onSelect?: () => void;
+}) => {
+  const [currentDateRange, setCurrentDateRange] = useState<{ startDate: Date; endDate: Date }>({
+    startDate: startOfWeek(new Date()),
+    endDate: endOfWeek(new Date())
+  });
+
+  return (
+    <TimeRangeSection
+      id="active"
+      title="Active"
+      currentDateRange={currentDateRange}
+      onTimeRangeSelect={setCurrentDateRange}
+      isSelected={isSelected}
+      onSelect={onSelect}
+    />
+  );
+};
 
 interface SubjectListProps {
   subjects: EmailThreadDetail[];
@@ -144,37 +211,89 @@ const SubjectList = ({ subjects, loading }: SubjectListProps) => {
   ));
 };
 
+// Helper function to compare time ranges
+const isTimeRangeEqual = (range1: { startDate: Date; endDate: Date }, range2: { startDate: Date; endDate: Date }) => {
+  return range1.startDate.getTime() === range2.startDate.getTime() &&
+         range1.endDate.getTime() === range2.endDate.getTime();
+};
+
+interface NavigationItemProps {
+  id: string;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+  children: React.ReactNode;
+}
+
+const NavigationItem = ({
+  id,
+  isSelected,
+  onSelect,
+  children
+}: NavigationItemProps) => {
+  const handleSelect = () => {
+    onSelect(id);
+  };
+
+  return (
+    <Box onClick={handleSelect}>
+      {React.Children.map(children, child => {
+        if (React.isValidElement(child)) {
+          return React.cloneElement(child, { isSelected, onSelect: handleSelect });
+        }
+        return child;
+      })}
+    </Box>
+  );
+};
+
 const NavigationPanel = ({ 
   onSectionSelect,
-  onTimeRangeSelect
+  selectedSection
 }: { 
-  onSectionSelect: (section: 'new' | 'active') => void;
-  onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
+  onSectionSelect: (section: string) => void;
+  selectedSection: string;
 }) => (
   <Paper sx={{ p: 2 }}>
-    <Section 
-      title="New" 
-      onTitleClick={() => onSectionSelect('new')}
-      onTimeRangeSelect={onTimeRangeSelect}
-    />
-    <Section 
-      title="Active" 
-      onTitleClick={() => onSectionSelect('active')}
-      onTimeRangeSelect={onTimeRangeSelect}
-    />
+    <Stack spacing={3}>
+      <NavigationItem
+        id="new"
+        isSelected={selectedSection === 'new'}
+        onSelect={onSectionSelect}
+      >
+        <NewSubjectsSection />
+      </NavigationItem>
+      <NavigationItem
+        id="active"
+        isSelected={selectedSection === 'active'}
+        onSelect={onSectionSelect}
+      >
+        <ActiveSubjectsSection />
+      </NavigationItem>
+    </Stack>
   </Paper>
 );
 
 function App() {
-  const [selectedSection, setSelectedSection] = useState<'new' | 'active'>('new');
+  const [selectedSection, setSelectedSection] = useState<string>('new');
   const [activeSubjects, setActiveSubjects] = useState<EmailThreadDetail[]>([]);
   const [newSubjects, setNewSubjects] = useState<EmailThreadDetail[]>([]);
   const [loadingActive, setLoadingActive] = useState(true);
   const [loadingNew, setLoadingNew] = useState(true);
-  const [dateRange, setDateRange] = useState(() => timeRanges[0].getRange());
+  
+  // Separate date ranges for each section with different defaults
+  const [activeDateRange, setActiveDateRange] = useState(() => 
+    timeRanges.find(r => r.label === 'today')!.getRange()
+  );
+  const [newDateRange, setNewDateRange] = useState(() => 
+    timeRanges.find(r => r.label === 'this week')!.getRange()
+  );
 
   const handleTimeRangeSelect = (range: { startDate: Date; endDate: Date }) => {
-    setDateRange(range);
+    if (selectedSection === 'active') {
+      setActiveDateRange(range);
+    } else {
+      setNewDateRange(range);
+    }
   };
 
   // Fetch data when date range changes
@@ -184,21 +303,21 @@ function App() {
     if (selectedSection === 'active') {
       setLoadingActive(true);
       console.log("fetching active subjects");
-      getActiveSubjects(dateRange.startDate, dateRange.endDate)
+      getActiveSubjects(activeDateRange.startDate, activeDateRange.endDate)
         .then(setActiveSubjects)
         .catch(error => console.error('Error fetching active subjects:', error))
         .finally(() => setLoadingActive(false));
     } else {
       setLoadingNew(true);
       console.log("fetching new subjects");
-      getNewSubjects(dateRange.startDate, dateRange.endDate)
+      getNewSubjects(newDateRange.startDate, newDateRange.endDate)
         .then(setNewSubjects)
         .catch(error => console.error('Error fetching new subjects:', error))
         .finally(() => setLoadingNew(false));
     }
 
     return () => controller.abort();
-  }, [dateRange, selectedSection]);
+  }, [activeDateRange, newDateRange, selectedSection]);
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
@@ -216,7 +335,7 @@ function App() {
         >
           <NavigationPanel 
             onSectionSelect={setSelectedSection}
-            onTimeRangeSelect={handleTimeRangeSelect}
+            selectedSection={selectedSection}
           />
         </Box>
 

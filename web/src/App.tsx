@@ -320,6 +320,9 @@ const NavigationPanel = ({
 
 interface NavigationContextType {
   navItemSelected?: boolean;
+  // when the user clicks a child element in NavigationItem, we need this
+  // callback to inform the parent NavigationItem that it is selected.
+  // In such way, the parent NavigationItem can change its state.
   onNavItemSelected?: (title: string) => void;
   navItemTitle?: string;
 }
@@ -334,11 +337,14 @@ interface NavigationItemProps {
   children: React.ReactElement;
 }
 
+// NavigationItem outputs EmailThreadDetail[] when selected
+// through onDataChange
 const NavigationItem = ({
   title,
   // when selected, we need add hint to the user
   selected,
   // when selected, the user can toggle the expansion
+  // when not selected, the item can keep the expansion state
   expanded,
   onClick,
   children

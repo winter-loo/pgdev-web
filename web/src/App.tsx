@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Container, Paper, Typography, CircularProgress, Button, Link, Box, Stack } from '@mui/material';
+import { 
+  Container, 
+  Paper, 
+  Typography, 
+  CircularProgress, 
+  Button, 
+  Link, 
+  Box, 
+  Stack,
+  IconButton,
+  Drawer,
+  useMediaQuery,
+  useTheme
+} from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
 import DOMPurify from 'dompurify';
 import { format, startOfToday, endOfToday, startOfWeek as __startOfWeek, endOfWeek as __endOfWeek, startOfYesterday, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { getActiveSubjects, getNewSubjects } from './api/client';
@@ -414,47 +428,90 @@ const NavigationItem = ({
 function App() {
   const [subjects, setSubjects] = useState<EmailThreadDetail[]>([]);
   const [loadingSubjects, setLoadingSubjects] = useState<boolean>(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+
+  const handleDrawerToggle = () => {
+    setMobileOpen(!mobileOpen);
+  };
+
+  const navigationPanel = (
+    <NavigationPanel
+      index="2"
+      onWillLoadSubject={() => {
+        setLoadingSubjects(true);
+      }}
+      onDidLoadSubject={(subjects: EmailThreadDetail[]) => {
+        setLoadingSubjects(false);
+        setSubjects(subjects);
+      }}
+    />
+  );
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Box sx={{ display: 'flex', gap: 2, height: 'calc(100vh - 64px)' }}>
-        {/* Fixed left navigation panel */}
-        <Box
-          sx={{
-            width: '25%',
-            position: 'sticky',
-            top: '64px',
-            height: 'fit-content',
-            maxHeight: 'calc(100vh - 96px)',
-            overflowY: 'auto'
-          }}
-        >
-          <NavigationPanel
-            // the default highlighted item index
-            // In React dev mode, it has a bug that the same NavigationItem
-            // will be loaded twice at the same time, which causes a gap
-            // between the items.
-            index="2"
-            onWillLoadSubject={
-              () => {
-                setLoadingSubjects(true);
-              }
-            }
-            onDidLoadSubject={
-              (subjects: EmailThreadDetail[]) => {
-                setLoadingSubjects(false);
-                setSubjects(subjects);
-              }
-            }
-          />
+      {/* Mobile hamburger menu */}
+      {isMobile && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-start', mb: 2 }}>
+          <IconButton
+            color="inherit"
+            aria-label="open drawer"
+            edge="start"
+            onClick={handleDrawerToggle}
+            sx={{ ml: 0 }}
+          >
+            <MenuIcon />
+          </IconButton>
         </Box>
+      )}
+
+      <Box sx={{
+        display: 'flex',
+        gap: 2,
+        height: isMobile ? 'auto' : 'calc(100vh - 64px)'
+      }}>
+        {/* Navigation panel - Drawer on mobile, fixed on desktop */}
+        {isMobile ? (
+          <Drawer
+            variant="temporary"
+            anchor="left"
+            open={mobileOpen}
+            onClose={handleDrawerToggle}
+            ModalProps={{
+              keepMounted: true, // Better mobile performance
+            }}
+            sx={{
+              '& .MuiDrawer-paper': {
+                width: '80%',
+                boxSizing: 'border-box',
+                height: '100%',
+              },
+            }}
+          >
+            {navigationPanel}
+          </Drawer>
+        ) : (
+          <Box
+            sx={{
+              width: '25%',
+              position: 'sticky',
+              top: '64px',
+              height: 'fit-content',
+              maxHeight: 'calc(100vh - 96px)',
+              overflowY: 'auto'
+            }}
+          >
+            {navigationPanel}
+          </Box>
+        )}
 
         {/* Scrollable content area */}
         <Box
           sx={{
-            width: '75%',
+            width: isMobile ? '100%' : '75%',
             overflowY: 'auto',
-            maxHeight: 'calc(100vh - 96px)'
+            maxHeight: isMobile ? 'none' : 'calc(100vh - 96px)'
           }}
         >
           <SubjectList

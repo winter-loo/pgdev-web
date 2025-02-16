@@ -150,6 +150,7 @@ const TimeRangeSectionComponent = ({
             color: (timeRanges[index].id === id) ? '#1976d2' : 'inherit',
           }}
           onClick={() => {
+            console.log("current selected: ", id, "clicked", timeRanges[index].id);
             // if the same item clicked again, do nothing
             if (id !== timeRanges[index].id) {
               onTimeRangeSelect(range);
@@ -217,12 +218,28 @@ const NewSubjectsSection = ({
       });
 
     return () => controller.abort();
-  }, [currentDateRange]);
+  },
+  // TODO:
+  // two dependencies to fix a case:
+  // when active item 2 clicked and data loaded, then new item 2 clicked and data loaded,
+  // then click active item 2 again, the page dost not display its data.
+  // 
+  // add id as dependency to fix the issue but it causes another issue:
+  // each time an item is clicked, two network requests are sent.
+  [currentDateRange, id]);
 
   return (
     <TimeRangeSectionComponent
       timeRanges={myTimeRanges}
-      onTimeRangeSelect={setCurrentDateRange}
+      onTimeRangeSelect={(x) => {
+        console.log(
+          "new current selected: ",
+          currentDateRange.id,
+          "clicked",
+          x.id
+        );
+        setCurrentDateRange(x);
+      }}
     />
   );
 };
@@ -276,12 +293,28 @@ const ActiveSubjectsSection = ({
       });
 
     return () => controller.abort();
-  }, [currentDateRange]);
+  },
+  // TODO:
+  // two dependencies to fix a case:
+  // when active item 2 clicked and data loaded, then new item 2 clicked and data loaded,
+  // then click active item 2 again, the page dost not display its data.
+  // 
+  // add id as dependency to fix the issue but it causes another issue:
+  // each time an item is clicked, two network requests are sent.
+  [currentDateRange, id]);
 
   return (
     <TimeRangeSectionComponent
       timeRanges={myTimeRanges}
-      onTimeRangeSelect={setCurrentDateRange}
+      onTimeRangeSelect={(x) => {
+        console.log(
+          "active current selected: ",
+          currentDateRange?.id,
+          "clicked",
+          x.id
+        );
+        setCurrentDateRange(x);
+      }}
     />
   );
 };

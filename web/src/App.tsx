@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Container, Grid, Paper, Typography, CircularProgress, Button, Link } from '@mui/material';
+import { Container, Grid, Paper, Typography, CircularProgress, Button, Link, Box } from '@mui/material';
 import DOMPurify from 'dompurify';
 import { format, startOfToday, endOfToday, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { getActiveSubjects, getNewSubjects } from './api/client';
@@ -202,20 +202,38 @@ function App() {
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Grid container spacing={2}>
-        <Grid xs={3}>
+      <Box sx={{ display: 'flex', gap: 2, height: 'calc(100vh - 64px)' }}>
+        {/* Fixed left navigation panel */}
+        <Box 
+          sx={{ 
+            width: '25%', 
+            position: 'sticky',
+            top: '64px',
+            height: 'fit-content',
+            maxHeight: 'calc(100vh - 96px)',
+            overflowY: 'auto'
+          }}
+        >
           <NavigationPanel 
             onSectionSelect={setSelectedSection}
             onTimeRangeSelect={handleTimeRangeSelect}
           />
-        </Grid>
-        <Grid xs={9}>
+        </Box>
+
+        {/* Scrollable content area */}
+        <Box 
+          sx={{ 
+            width: '75%',
+            overflowY: 'auto',
+            maxHeight: 'calc(100vh - 96px)'
+          }}
+        >
           <SubjectList
             subjects={selectedSection === 'active' ? activeSubjects : newSubjects}
             loading={selectedSection === 'active' ? loadingActive : loadingNew}
           />
-        </Grid>
-      </Grid>
+        </Box>
+      </Box>
     </Container>
   );
 }

@@ -12,23 +12,23 @@ export interface EmailThreadDetail {
   content: string;
 }
 
-export const getActiveSubjects = async (startDate: Date, endDate: Date): Promise<EmailThreadDetail[]> => {
+export const getActiveSubjects = async (startDate: Date, endDate: Date, signal?: AbortSignal): Promise<EmailThreadDetail[]> => {
   const params = {
     start_date: format(startDate, 'yyyyMMddHHmmss'),
     end_date: format(endDate, 'yyyyMMddHHmmss'),
   };
   
-  const response = await axios.get(`${API_BASE_URL}/active-subjects`, { params });
+  const response = await axios.get(`${API_BASE_URL}/active-subjects`, { params, signal });
   return response.data;
 };
 
-export const getNewSubjects = async (startDate: Date, endDate: Date): Promise<EmailThreadDetail[]> => {
+export const getNewSubjects = async (startDate: Date, endDate: Date, signal?: AbortSignal): Promise<EmailThreadDetail[]> => {
   const params = {
     start_date: format(startDate, 'yyyyMMddHHmmss'),
     end_date: format(endDate, 'yyyyMMddHHmmss'),
   };
   
-  const response = await axios.get(`${API_BASE_URL}/new-subjects`, { params });
+  const response = await axios.get(`${API_BASE_URL}/new-subjects`, { params, signal });
   
   // Transform EmailThread to EmailThreadDetail
   return response.data.map((thread: { id: string; subject: string; datetime: string; author: string }) => ({

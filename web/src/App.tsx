@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { Container, Paper, Typography, CircularProgress, Button, Link, Box, Stack } from '@mui/material';
 import DOMPurify from 'dompurify';
 import { format, startOfToday, endOfToday, startOfWeek as __startOfWeek, endOfWeek as __endOfWeek, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
@@ -215,14 +216,16 @@ const NewSubjectsSection = ({
 
     onWillLoad?.();
     console.log("fetching new subjects");
-    getNewSubjects(currentDateRange.startDate, currentDateRange.endDate)
+    getNewSubjects(currentDateRange.startDate, currentDateRange.endDate, controller.signal)
       .then((subjects) => {
         console.log("fetched new subjects");
         onDidLoad?.(subjects);
       })
       .catch(error => {
-        console.error('Error fetching new subjects:', error);
-        onDidLoad?.([]);
+        if (!axios.isCancel(error)) {
+          console.error('Error fetching new subjects:', error);
+          onDidLoad?.([]);
+        }
       });
 
     return () => controller.abort();
@@ -254,13 +257,15 @@ const ActiveSubjectsSection = ({
 
     onWillLoad?.();
     console.log("fetching active subjects");
-    getActiveSubjects(currentDateRange.startDate, currentDateRange.endDate)
+    getActiveSubjects(currentDateRange.startDate, currentDateRange.endDate, controller.signal)
       .then((subjects) => {
         onDidLoad?.(subjects);
       })
       .catch(error => {
-        console.error('Error fetching active subjects:', error);
-        onDidLoad?.([]);
+        if (!axios.isCancel(error)) {
+          console.error('Error fetching active subjects:', error);
+          onDidLoad?.([]);
+        }
       });
 
     return () => controller.abort();

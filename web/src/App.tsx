@@ -195,6 +195,10 @@ const NewSubjectsSection = ({
   // Fetch data when date range changes
   useEffect(() => {
     const controller = new AbortController();
+    // id changed but not changed to current item
+    if (currentDateRange.id != id) {
+      return;
+    }
 
     onWillLoad?.();
     console.log("fetching new subjects");
@@ -226,6 +230,7 @@ const NewSubjectsSection = ({
   // 
   // add id as dependency to fix the issue but it causes another issue:
   // each time an item is clicked, two network requests are sent.
+  // fixed by checking currentDateRange.id == id, see code before.
   [currentDateRange, id]);
 
   return (
@@ -270,6 +275,10 @@ const ActiveSubjectsSection = ({
     if (!currentDateRange) {
       return;
     }
+    // id changed but not changed to current item
+    if (currentDateRange.id != id) {
+      return;
+    }
     const controller = new AbortController();
 
     onWillLoad?.();
@@ -294,13 +303,13 @@ const ActiveSubjectsSection = ({
 
     return () => controller.abort();
   },
-  // TODO:
   // two dependencies to fix a case:
   // when active item 2 clicked and data loaded, then new item 2 clicked and data loaded,
   // then click active item 2 again, the page dost not display its data.
   // 
   // add id as dependency to fix the issue but it causes another issue:
   // each time an item is clicked, two network requests are sent.
+  // fixed by checking currentDateRange.id == id, see code before.
   [currentDateRange, id]);
 
   return (

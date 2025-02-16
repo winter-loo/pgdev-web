@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Container, Paper, Typography, CircularProgress, Button, Link, Box, Stack } from '@mui/material';
 import DOMPurify from 'dompurify';
-import { format, startOfToday, endOfToday, startOfWeek as __startOfWeek, endOfWeek as __endOfWeek, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import { format, startOfToday, endOfToday, startOfWeek as __startOfWeek, endOfWeek as __endOfWeek, startOfYesterday, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { getActiveSubjects, getNewSubjects } from './api/client';
 import type { EmailThreadDetail } from './api/client';
 import IdGenerator from './utils/IdGenerator';
@@ -84,6 +84,13 @@ const timeRanges: TimeRange[] = [
     })
   },
   {
+    label: 'since yesterday',
+    getRange: () => ({
+      startDate: startOfYesterday(),
+      endDate: new Date(),
+    })
+  },
+  {
     label: 'this week',
     getRange: () => ({
       startDate: startOfWeek(new Date()),
@@ -120,12 +127,12 @@ const timeRanges: TimeRange[] = [
 ];
 
 interface TimeRangeSectionProps {
-  timeRangeIdList?: string[];
-  onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
+  timeRanges: TimeRangeWithId[];
+  onTimeRangeSelect: (range: TimeRangeWithId) => void;
 }
 
 const TimeRangeSectionComponent = ({
-  timeRangeIdList,
+  timeRanges,
   onTimeRangeSelect,
 }: TimeRangeSectionProps) => {
   const { id, setId } = React.useContext(NavigationItemIdContext);
@@ -134,18 +141,19 @@ const TimeRangeSectionComponent = ({
     <div>
       {timeRanges.map((range, index) => (
         <Button
-          data-id={timeRangeIdList?.[index]}
-          key={timeRangeIdList?.[index]}
+          data-id={timeRanges[index].id}
+          key={timeRanges[index].id}
           fullWidth
           sx={{
             justifyContent: 'flex-start',
             mb: index === timeRanges.length - 1 ? 3 : 1,
-            color: (timeRangeIdList?.[index] === id) ? '#1976d2' : 'inherit',
+            color: (timeRanges[index].id === id) ? '#1976d2' : 'inherit',
           }}
           onClick={() => {
-            if (id !== timeRangeIdList?.[index]) {
-              onTimeRangeSelect(range.getRange());
-              setId?.(timeRangeIdList?.[index] || '');
+            // if the same item clicked again, do nothing
+            if (id !== timeRanges[index].id) {
+              onTimeRangeSelect(range);
+              setId?.(timeRanges[index].id || '');
             }
           }}
         >
@@ -156,6 +164,12 @@ const TimeRangeSectionComponent = ({
   );
 }
 
+interface TimeRangeWithId {
+  id?: string;
+  label: string;
+  getRange: () => { startDate: Date; endDate: Date };
+}
+
 const NewSubjectsSection = ({
   onWillLoad,
   onDidLoad
@@ -163,15 +177,19 @@ const NewSubjectsSection = ({
   onWillLoad?: () => void;
   onDidLoad?: (subjects: EmailThreadDetail[]) => void;
 }) => {
-  const [currentDateRange, setCurrentDateRange] = useState<{ startDate: Date; endDate: Date }>({
-    startDate: startOfWeek(new Date()),
-    endDate: endOfWeek(new Date())
-  });
   // could not use below statement in the useState function
   // otherwise see browser console for the error message
-  const { idgen } = React.useContext(NavigationItemIdContext);
+  const { id, idgen } = React.useContext(NavigationItemIdContext);
   // the lambda function is only invoked once for timeRangeIdList
-  const [timeRangeIdList, _] = useState<string[]>(idgen ? timeRanges.map(() => idgen.next()) : []);
+  const [myTimeRanges] = useState(
+    timeRanges.map((range) => ({
+      id: idgen?.next(),
+      ...range
+    }))
+  );
+  const [currentDateRange, setCurrentDateRange] = useState<TimeRangeWithId>({
+    ...myTimeRanges[1]
+  });
 
   // Fetch data when date range changes
   useEffect(() => {
@@ -179,15 +197,22 @@ const NewSubjectsSection = ({
 
     onWillLoad?.();
     console.log("fetching new subjects");
-    getNewSubjects(currentDateRange.startDate, currentDateRange.endDate, controller.signal)
+    let { startDate, endDate } = currentDateRange.getRange();
+    getNewSubjects(startDate, endDate, controller.signal)
       .then((subjects) => {
         console.log("fetched new subjects");
-        onDidLoad?.(subjects);
+        // This condition is to avoid displaying the data loaded later from an
+        // item that is not selected now.
+        if (currentDateRange.id == id) {
+          onDidLoad?.(subjects);
+        }
       })
       .catch(error => {
         if (!axios.isCancel(error)) {
           console.error('Error fetching new subjects:', error);
-          onDidLoad?.([]);
+          if (currentDateRange.id == id) {
+            onDidLoad?.([]);
+          }
         }
       });
 
@@ -196,7 +221,7 @@ const NewSubjectsSection = ({
 
   return (
     <TimeRangeSectionComponent
-      timeRangeIdList={timeRangeIdList}
+      timeRanges={myTimeRanges}
       onTimeRangeSelect={setCurrentDateRange}
     />
   );
@@ -209,30 +234,44 @@ const ActiveSubjectsSection = ({
   onWillLoad?: () => void;
   onDidLoad?: (subjects: EmailThreadDetail[]) => void;
 }) => {
-  const [currentDateRange, setCurrentDateRange] = useState<{ startDate: Date; endDate: Date }>({
-    startDate: startOfToday(),
-    endDate: endOfToday()
-  });
   // could not use below statement in the useState function
   // otherwise see browser console for the error message
-  const { idgen } = React.useContext(NavigationItemIdContext);
+  const { id, idgen } = React.useContext(NavigationItemIdContext);
   // the lambda function is only invoked once for timeRangeIdList
-  const [timeRangeIdList, _] = useState<string[]>(idgen ? timeRanges.map(() => idgen.next()) : []);
+  const [myTimeRanges] = useState(
+    timeRanges.map((range) => ({
+      id: idgen?.next(),
+      ...range
+    }))
+  );
+  // set to null to disallow fetching on initial page loading
+  const [currentDateRange, setCurrentDateRange] = useState<TimeRangeWithId | null>(null);
 
   // Fetch data when date range changes
   useEffect(() => {
+    // null then do not fetch data
+    if (!currentDateRange) {
+      return;
+    }
     const controller = new AbortController();
 
     onWillLoad?.();
     console.log("fetching active subjects");
-    getActiveSubjects(currentDateRange.startDate, currentDateRange.endDate, controller.signal)
+    let { startDate, endDate } = currentDateRange.getRange();
+    getActiveSubjects(startDate, endDate, controller.signal)
       .then((subjects) => {
-        onDidLoad?.(subjects);
+        // This condition is to avoid displaying the data loaded later from an
+        // item that is not selected now.
+        if (currentDateRange.id == id) {
+          onDidLoad?.(subjects);
+        }
       })
       .catch(error => {
         if (!axios.isCancel(error)) {
           console.error('Error fetching active subjects:', error);
-          onDidLoad?.([]);
+          if (currentDateRange.id == id) {
+            onDidLoad?.([]);
+          }
         }
       });
 
@@ -241,7 +280,7 @@ const ActiveSubjectsSection = ({
 
   return (
     <TimeRangeSectionComponent
-      timeRangeIdList={timeRangeIdList}
+      timeRanges={myTimeRanges}
       onTimeRangeSelect={setCurrentDateRange}
     />
   );

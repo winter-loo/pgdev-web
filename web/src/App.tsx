@@ -5,6 +5,7 @@ import DOMPurify from 'dompurify';
 import { format, startOfToday, endOfToday, startOfWeek as __startOfWeek, endOfWeek as __endOfWeek, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { getActiveSubjects, getNewSubjects } from './api/client';
 import type { EmailThreadDetail } from './api/client';
+import IdGenerator from './utils/IdGenerator';
 
 interface SubjectContentProps {
   content: string;
@@ -165,30 +166,31 @@ const TimeRangeSection = ({
 );
 
 interface TimeRangeSectionProps {
-  currentDateRange: { startDate: Date; endDate: Date };
+  timeRangeIdList?: string[];
   onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
 }
 
 const TimeRangeSectionComponent = ({
+  timeRangeIdList,
   onTimeRangeSelect,
-  currentDateRange,
 }: TimeRangeSectionProps) => {
-  const { navItemSelected, onNavItemSelected, navItemTitle } = React.useContext(NavigationContext);
+  const { id, setId } = React.useContext(NavigationItemIdContext);
 
   return (
     <div>
       {timeRanges.map((range, index) => (
         <Button
-          key={range.label}
+          data-id={timeRangeIdList?.[index]}
+          key={timeRangeIdList?.[index]}
           fullWidth
           sx={{
             justifyContent: 'flex-start',
             mb: index === timeRanges.length - 1 ? 3 : 1,
-            color: (navItemSelected && isTimeRangeEqual(range.getRange(), currentDateRange)) ? '#1976d2' : 'inherit',
+            color: (timeRangeIdList?.[index] === id) ? '#1976d2' : 'inherit',
           }}
           onClick={() => {
             onTimeRangeSelect(range.getRange());
-            onNavItemSelected?.(navItemTitle || '')
+            setId?.(timeRangeIdList?.[index] || '');
           }}
         >
           {range.label}
@@ -209,6 +211,11 @@ const NewSubjectsSection = ({
     startDate: startOfWeek(new Date()),
     endDate: endOfWeek(new Date())
   });
+  // could not use below statement in the useState function
+  // otherwise see browser console for the error message
+  const { idgen } = React.useContext(NavigationItemIdContext);
+  // the lambda function is only invoked once for timeRangeIdList
+  const [timeRangeIdList, _] = useState<string[]>(idgen ? timeRanges.map(() => idgen.next()) : []);
 
   // Fetch data when date range changes
   useEffect(() => {
@@ -233,7 +240,7 @@ const NewSubjectsSection = ({
 
   return (
     <TimeRangeSectionComponent
-      currentDateRange={currentDateRange}
+      timeRangeIdList={timeRangeIdList}
       onTimeRangeSelect={setCurrentDateRange}
     />
   );
@@ -250,6 +257,11 @@ const ActiveSubjectsSection = ({
     startDate: startOfToday(),
     endDate: endOfToday()
   });
+  // could not use below statement in the useState function
+  // otherwise see browser console for the error message
+  const { idgen } = React.useContext(NavigationItemIdContext);
+  // the lambda function is only invoked once for timeRangeIdList
+  const [timeRangeIdList, _] = useState<string[]>(idgen ? timeRanges.map(() => idgen.next()) : []);
 
   // Fetch data when date range changes
   useEffect(() => {
@@ -273,7 +285,7 @@ const ActiveSubjectsSection = ({
 
   return (
     <TimeRangeSectionComponent
-      currentDateRange={currentDateRange}
+      timeRangeIdList={timeRangeIdList}
       onTimeRangeSelect={setCurrentDateRange}
     />
   );
@@ -290,44 +302,36 @@ const isTimeRangeEqual = (range1: { startDate: Date; endDate: Date }, range2: { 
 
 const NavigationPanel = ({
   onWillLoadSubject,
-  onDidLoadSubject
+  onDidLoadSubject,
+  index,
 }: {
   onWillLoadSubject: () => void;
   onDidLoadSubject: (subjects: EmailThreadDetail[]) => void;
+  index: string;
 }) => {
-  const [selectedItem, setSelectedItem] = useState<string | null>("New");
+  const [currentId, setCurrentId] = useState<string | null>(index);
 
   return (<Paper sx={{ p: 2 }}>
     <Stack spacing={3}>
-      <NavigationItem
-        title="New"
-        expanded
-        selected={selectedItem === 'New'}
-        onClick={setSelectedItem}
-      >
-        <NewSubjectsSection onWillLoad={onWillLoadSubject} onDidLoad={onDidLoadSubject} />
-      </NavigationItem>
-      <NavigationItem
-        title="Active"
-        selected={selectedItem === 'Active'}
-        onClick={setSelectedItem}
-      >
-        <ActiveSubjectsSection onWillLoad={onWillLoadSubject} onDidLoad={onDidLoadSubject} />
-      </NavigationItem>
+      <NavigationItemIdContext.Provider value={{ idgen: new IdGenerator(), id: currentId, setId: setCurrentId }}>
+        <NavigationItem title="New" expanded >
+          <NewSubjectsSection onWillLoad={onWillLoadSubject} onDidLoad={onDidLoadSubject} />
+        </NavigationItem>
+        <NavigationItem title="Active" >
+          <ActiveSubjectsSection onWillLoad={onWillLoadSubject} onDidLoad={onDidLoadSubject} />
+        </NavigationItem>
+      </NavigationItemIdContext.Provider>
     </Stack>
   </Paper>);
 };
 
-interface NavigationContextType {
-  navItemSelected?: boolean;
-  // when the user clicks a child element in NavigationItem, we need this
-  // callback to inform the parent NavigationItem that it is selected.
-  // In such way, the parent NavigationItem can change its state.
-  onNavItemSelected?: (title: string) => void;
-  navItemTitle?: string;
+interface NavigationItemIdProps {
+  idgen: IdGenerator | null;
+  id: string | null;
+  setId: (id: string) => void;
 }
 
-const NavigationContext = React.createContext<NavigationContextType>({ navItemSelected: false, onNavItemSelected: undefined, navItemTitle: undefined });
+const NavigationItemIdContext = React.createContext<NavigationItemIdProps>({ idgen: null, id: null, setId: () => { } });
 
 interface NavigationItemProps {
   title: string;
@@ -341,8 +345,6 @@ interface NavigationItemProps {
 // through onDataChange
 const NavigationItem = ({
   title,
-  // when selected, we need add hint to the user
-  selected,
   // when selected, the user can toggle the expansion
   // when not selected, the item can keep the expansion state
   expanded,
@@ -364,18 +366,15 @@ const NavigationItem = ({
         gutterBottom
         sx={{
           cursor: 'pointer',
-          color: selected ? '#1976d2' : 'inherit'
         }}
         onClick={handleSelect}
       >
         {title}
       </Typography>
       {/* navigation item content */}
-      <NavigationContext.Provider value={{ navItemSelected: selected, onNavItemSelected: onClick, navItemTitle: title }}>
-        <Box sx={{ display: isExpanded ? 'block' : 'none' }}>
-          {React.isValidElement(children) && React.cloneElement(children)}
-        </Box>
-      </NavigationContext.Provider>
+      <Box sx={{ display: isExpanded ? 'block' : 'none' }}>
+        {React.isValidElement(children) && React.cloneElement(children)}
+      </Box>
     </Box>
   );
 };
@@ -399,6 +398,11 @@ function App() {
           }}
         >
           <NavigationPanel
+            // the default highlighted item index
+            // In React dev mode, it has a bug that the same NavigationItem
+            // will be loaded twice at the same time, which causes a gap
+            // between the items.
+            index="2"
             onWillLoadSubject={
               () => {
                 setLoadingSubjects(true);

@@ -127,15 +127,38 @@ const TimeRangeSection = ({
 
 const NewSubjectsSection = ({
   isSelected,
-  onSelect
+  onSelect,
+  onWillLoad,
+  onDidLoad
 }: {
   isSelected?: boolean;
   onSelect?: () => void;
+  onWillLoad?: () => void;
+  onDidLoad?: (subjects: EmailThreadDetail[]) => void;
 }) => {
   const [currentDateRange, setCurrentDateRange] = useState<{ startDate: Date; endDate: Date }>({
     startDate: startOfToday(),
     endDate: endOfToday()
   });
+
+  // Fetch data when date range changes
+  useEffect(() => {
+    const controller = new AbortController();
+
+    onWillLoad?.();
+    console.log("fetching new subjects");
+    getNewSubjects(currentDateRange.startDate, currentDateRange.endDate)
+      .then((subjects) => {
+        console.log("fetched new subjects");
+        onDidLoad?.(subjects);
+      })
+      .catch(error => {
+        console.error('Error fetching new subjects:', error);
+        onDidLoad?.([]);
+      });
+
+    return () => controller.abort();
+  }, [currentDateRange]);
 
   return (
     <TimeRangeSection
@@ -151,15 +174,37 @@ const NewSubjectsSection = ({
 
 const ActiveSubjectsSection = ({
   isSelected,
-  onSelect
+  onSelect,
+  onWillLoad,
+  onDidLoad
 }: {
   isSelected?: boolean;
   onSelect?: () => void;
+  onWillLoad?: () => void;
+  onDidLoad?: (subjects: EmailThreadDetail[]) => void;
 }) => {
   const [currentDateRange, setCurrentDateRange] = useState<{ startDate: Date; endDate: Date }>({
     startDate: startOfWeek(new Date()),
     endDate: endOfWeek(new Date())
   });
+
+  // Fetch data when date range changes
+  useEffect(() => {
+    const controller = new AbortController();
+
+    onWillLoad?.();
+    console.log("fetching active subjects");
+    getActiveSubjects(currentDateRange.startDate, currentDateRange.endDate)
+      .then((subjects) => {
+        onDidLoad?.(subjects);
+      })
+      .catch(error => {
+        console.error('Error fetching active subjects:', error);
+        onDidLoad?.([]);
+      });
+
+    return () => controller.abort();
+  }, [currentDateRange]);
 
   return (
     <TimeRangeSection
@@ -248,10 +293,14 @@ const NavigationItem = ({
 
 const NavigationPanel = ({ 
   onSectionSelect,
-  selectedSection
+  selectedSection,
+  onWillLoadSubject,
+  onDidLoadSubject
 }: { 
   onSectionSelect: (section: string) => void;
   selectedSection: string;
+  onWillLoadSubject: () => void;
+  onDidLoadSubject: (subjects: EmailThreadDetail[]) => void;
 }) => (
   <Paper sx={{ p: 2 }}>
     <Stack spacing={3}>
@@ -260,14 +309,14 @@ const NavigationPanel = ({
         isSelected={selectedSection === 'new'}
         onSelect={onSectionSelect}
       >
-        <NewSubjectsSection />
+        <NewSubjectsSection onWillLoad={onWillLoadSubject} onDidLoad={onDidLoadSubject} />
       </NavigationItem>
       <NavigationItem
         id="active"
         isSelected={selectedSection === 'active'}
         onSelect={onSectionSelect}
       >
-        <ActiveSubjectsSection />
+        <ActiveSubjectsSection onWillLoad={onWillLoadSubject} onDidLoad={onDidLoadSubject} />
       </NavigationItem>
     </Stack>
   </Paper>
@@ -275,49 +324,8 @@ const NavigationPanel = ({
 
 function App() {
   const [selectedSection, setSelectedSection] = useState<string>('new');
-  const [activeSubjects, setActiveSubjects] = useState<EmailThreadDetail[]>([]);
-  const [newSubjects, setNewSubjects] = useState<EmailThreadDetail[]>([]);
-  const [loadingActive, setLoadingActive] = useState(true);
-  const [loadingNew, setLoadingNew] = useState(true);
-  
-  // Separate date ranges for each section with different defaults
-  const [activeDateRange, setActiveDateRange] = useState(() => 
-    timeRanges.find(r => r.label === 'today')!.getRange()
-  );
-  const [newDateRange, setNewDateRange] = useState(() => 
-    timeRanges.find(r => r.label === 'this week')!.getRange()
-  );
-
-  const handleTimeRangeSelect = (range: { startDate: Date; endDate: Date }) => {
-    if (selectedSection === 'active') {
-      setActiveDateRange(range);
-    } else {
-      setNewDateRange(range);
-    }
-  };
-
-  // Fetch data when date range changes
-  useEffect(() => {
-    const controller = new AbortController();
-
-    if (selectedSection === 'active') {
-      setLoadingActive(true);
-      console.log("fetching active subjects");
-      getActiveSubjects(activeDateRange.startDate, activeDateRange.endDate)
-        .then(setActiveSubjects)
-        .catch(error => console.error('Error fetching active subjects:', error))
-        .finally(() => setLoadingActive(false));
-    } else {
-      setLoadingNew(true);
-      console.log("fetching new subjects");
-      getNewSubjects(newDateRange.startDate, newDateRange.endDate)
-        .then(setNewSubjects)
-        .catch(error => console.error('Error fetching new subjects:', error))
-        .finally(() => setLoadingNew(false));
-    }
-
-    return () => controller.abort();
-  }, [activeDateRange, newDateRange, selectedSection]);
+  const [subjects, setSubjects] = useState<EmailThreadDetail[]>([]);
+  const [loadingSubjects, setLoadingSubjects] = useState<boolean>(false);
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
@@ -336,6 +344,17 @@ function App() {
           <NavigationPanel 
             onSectionSelect={setSelectedSection}
             selectedSection={selectedSection}
+            onWillLoadSubject={
+              () => {
+                setLoadingSubjects(true);
+              }
+            }
+            onDidLoadSubject={
+              (subjects: EmailThreadDetail[]) => {
+                setLoadingSubjects(false);
+                setSubjects(subjects);
+              }
+            }
           />
         </Box>
 
@@ -348,8 +367,8 @@ function App() {
           }}
         >
           <SubjectList
-            subjects={selectedSection === 'active' ? activeSubjects : newSubjects}
-            loading={selectedSection === 'active' ? loadingActive : loadingNew}
+            subjects={subjects}
+            loading={loadingSubjects}
           />
         </Box>
       </Box>

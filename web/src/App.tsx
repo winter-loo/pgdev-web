@@ -119,52 +119,6 @@ const timeRanges: TimeRange[] = [
   }
 ];
 
-interface TimeRangeSection {
-  id: string;
-  title: string;
-  currentDateRange: { startDate: Date; endDate: Date };
-  onSelect?: () => void;
-  onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
-  isSelected?: boolean;
-}
-
-const TimeRangeSection = ({
-  title,
-  onSelect,
-  onTimeRangeSelect,
-  currentDateRange,
-  isSelected
-}: TimeRangeSection) => (
-  <div>
-    <Typography
-      variant="h6"
-      gutterBottom
-      sx={{
-        cursor: 'pointer',
-        color: isSelected ? '#1976d2' : 'inherit'
-      }}
-      onClick={onSelect}
-    >
-      {title}
-    </Typography>
-    {timeRanges.map((range, index) => (
-      <Button
-        key={range.label}
-        fullWidth
-        sx={{
-          justifyContent: 'flex-start',
-          mb: index === timeRanges.length - 1 ? 3 : 1,
-          color: isTimeRangeEqual(range.getRange(), currentDateRange) ? '#1976d2' : 'inherit',
-          display: !isSelected ? 'none' : 'flex'
-        }}
-        onClick={() => onTimeRangeSelect(range.getRange())}
-      >
-        {range.label}
-      </Button>
-    ))}
-  </div>
-);
-
 interface TimeRangeSectionProps {
   timeRangeIdList?: string[];
   onTimeRangeSelect: (range: { startDate: Date; endDate: Date }) => void;
@@ -294,11 +248,6 @@ const ActiveSubjectsSection = ({
 // Helper functions
 const startOfWeek = (date: Date = new Date()) => __startOfWeek(date, { weekStartsOn: 1 });
 const endOfWeek = (date: Date = new Date()) => __endOfWeek(date, { weekStartsOn: 1 });
-
-const isTimeRangeEqual = (range1: { startDate: Date; endDate: Date }, range2: { startDate: Date; endDate: Date }) => {
-  return range1.startDate.getTime() === range2.startDate.getTime() &&
-    range1.endDate.getTime() === range2.endDate.getTime();
-};
 
 const NavigationPanel = ({
   onWillLoadSubject,

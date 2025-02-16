@@ -143,8 +143,10 @@ const TimeRangeSectionComponent = ({
             color: (timeRangeIdList?.[index] === id) ? '#1976d2' : 'inherit',
           }}
           onClick={() => {
-            onTimeRangeSelect(range.getRange());
-            setId?.(timeRangeIdList?.[index] || '');
+            if (id !== timeRangeIdList?.[index]) {
+              onTimeRangeSelect(range.getRange());
+              setId?.(timeRangeIdList?.[index] || '');
+            }
           }}
         >
           {range.label}

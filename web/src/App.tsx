@@ -3,6 +3,7 @@ import axios from 'axios';
 import { 
   Container, 
   Paper, 
+  Divider,
   Typography, 
   CircularProgress, 
   Button, 
@@ -60,8 +61,8 @@ const SubjectList = ({ subjects, loading }: SubjectListProps) => {
     );
   }
 
-  return subjects.map((subject) => (
-    <Paper key={subject.id} sx={{ p: 2, mb: 2 }}>
+  return subjects.map((subject, index) => (
+    <Paper key={subject.id} elevation={0}>
       <Typography variant="h6">
         <Link
           href={`https://www.postgresql.org/message-id/${subject.id}`}
@@ -80,6 +81,7 @@ const SubjectList = ({ subjects, loading }: SubjectListProps) => {
         {format(new Date(subject.datetime), 'PPpp')}
       </Typography>
       <SubjectContent content={subject.content} />
+      {index < subjects.length - 1 && <Divider sx={{ my: 2 }} />}
     </Paper>
   ));
 };
@@ -357,7 +359,7 @@ const NavigationPanel = ({
 }) => {
   const [currentId, setCurrentId] = useState<string | null>(index);
 
-  return (<Paper sx={{ p: 2 }}>
+  return (<Paper elevation={0} sx={{ p: 2 }}>
     <Stack spacing={3}>
       <NavigationItemIdContext.Provider value={{ idgen: new IdGenerator(), id: currentId, setId: setCurrentId }}>
         <NavigationItem title="New" expanded >

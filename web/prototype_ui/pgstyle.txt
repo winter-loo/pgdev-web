@@ -1,0 +1,169 @@
+https://www.postgresql.org/message-id/87jz9mbuyq.fsf%40163.com
+
+
+Hi,
+
+
+
+When I run "SELECT * FROM pg_class LIMIT 1";  then postgresql
+run GetSnapshotData twice, one is
+
+
+
+/*
+ * Set up a snapshot if parse analysis/planning will need one.
+ */
+if (analyze_requires_snapshot(parsetree))
+{
+	PushActiveSnapshot(GetTransactionSnapshot());
+	snapshot_set = true;
+}
+
+
+
+the other one is in PortalStart.
+
+
+
+My question is why can't we share the same snapshot for the 2 cases?
+parser & planner requires Catalog Snapshot which should be the 
+latest one, but in the above case, looks the executor can reuse it as
+well. Is there anything I missed?
+
+
+
+Thanks
+
+
+
+-- 
+Best Regards
+Andy Fan
+
+-------------------------------------------------------------------------------
+
+Andy Fan <zhihuifan1213(at)163(dot)com> writes:
+> My question is why can't we share the same snapshot for the 2 cases?
+> parser & planner requires Catalog Snapshot which should be the 
+> latest one, but in the above case, looks the executor can reuse it as
+> well. Is there anything I missed?
+
+
+
+Many years ago, we committed a patch to do exactly that.  We had
+to back it out again because it broke too many real-world scenarios.
+I'm too lazy to search the archives for you, but you might be able
+to find the commit and revert by searching the git history.
+
+
+
+			regards, tom lane
+
+
+-------------------------------------------------------------------------------
+
+Tom Lane <tgl(at)sss(dot)pgh(dot)pa(dot)us> writes:
+
+
+
+> Andy Fan <zhihuifan1213(at)163(dot)com> writes:
+>> My question is why can't we share the same snapshot for the 2 cases?
+>> parser & planner requires Catalog Snapshot which should be the 
+>> latest one, but in the above case, looks the executor can reuse it as
+>> well. Is there anything I missed?
+>
+> Many years ago, we committed a patch to do exactly that.  We had
+> to back it out again because it broke too many real-world scenarios.
+> I'm too lazy to search the archives for you, but you might be able
+> to find the commit and revert by searching the git history.
+>
+> 			regards, tom lane
+
+
+
+Commit id is 532994299e2, thank you Tom!
+
+
+
+-- 
+Best Regards
+Andy Fan
+
+
+-------------------------------------------------------------------------------
+
+Andy Fan <zhihuifan1213(at)163(dot)com> writes:
+> Tom Lane <tgl(at)sss(dot)pgh(dot)pa(dot)us> writes:
+>> Many years ago, we committed a patch to do exactly that.  We had
+>> to back it out again because it broke too many real-world scenarios.
+>> I'm too lazy to search the archives for you, but you might be able
+>> to find the commit and revert by searching the git history.
+
+
+
+> Commit id is 532994299e2, thank you Tom!
+
+
+
+Ah, cool.  If you didn't find it already, there should be a
+pgsql-hackers or pgsql-bugs thread of approximately that date
+with more detail.  Sadly, we didn't adopt the convention of
+including Discussion: links in commit messages till some
+years after that.
+
+
+
+			regards, tom lane
+
+
+-------------------------------------------------------------------------------
+
+Tom Lane <tgl(at)sss(dot)pgh(dot)pa(dot)us> writes:
+
+
+
+> Andy Fan <zhihuifan1213(at)163(dot)com> writes:
+>> Tom Lane <tgl(at)sss(dot)pgh(dot)pa(dot)us> writes:
+>>> Many years ago, we committed a patch to do exactly that.  We had
+>>> to back it out again because it broke too many real-world scenarios.
+>>> I'm too lazy to search the archives for you, but you might be able
+>>> to find the commit and revert by searching the git history.
+>
+>> Commit id is 532994299e2, thank you Tom!
+>
+> links in commit messages till some years after that.
+
+
+
+Links in commit messages is a really great change.
+
+
+
+I have found more details at [1], the issue can be summaried as IIUC:
+
+
+
+The current strategy is below:
+t1: snapshot1
+parser&planner
+t2: snapshot2
+executor.
+
+
+
+which makes the committed tuple between (t1, t2] are visible to user, but if
+we share the same snapshot, the committed tuple would not be visible to
+user, Chaning it would be a behavior change. 
+
+
+
+[1] https://www.postgresql.org/message-id/5075D8DF.6050500%40fuzzy.cz
+
+
+
+-- 
+Best Regards
+Andy Fan
+
+
+

@@ -1,0 +1,3 @@
+An API to get all threads of a topic.
+
+GET /api/message-id/<message-id>/fetch_all

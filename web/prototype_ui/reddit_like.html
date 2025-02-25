@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PostgreSQL Discussion Thread</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      background-color: #f8f9fa;
+      color: #1c1c1c;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .comment {
+      padding: 8px 0;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    .comment-content {
+      padding: 4px 0;
+      line-height: 1.5;
+    }
+    .comment-actions {
+      display: flex;
+      gap: 8px;
+      font-size: 12px;
+      color: #878a8c;
+      align-items: center;
+      margin-top: 4px;
+    }
+    .comment-action {
+      cursor: pointer;
+      padding: 2px 4px;
+      display: flex;
+      align-items: center;
+    }
+    .vote-buttons {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .replies {
+      padding-left: 20px;
+      border-left: 2px solid #edeff1;
+      margin-left: 10px;
+      margin-top: 8px;
+    }
+    .user-info {
+      display: flex;
+      align-items: center;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .username {
+      font-weight: 600;
+      color: #1c1c1c;
+      margin-right: 5px;
+    }
+    .comment-time {
+      color: #787c7e;
+    }
+    .vote-count {
+      font-weight: 600;
+      color: #1a1a1b;
+    }
+    .vote-arrow {
+      color: #878a8c;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .vote-arrow:hover {
+      color: #0079d3;
+    }
+    .collapse-button {
+      cursor: pointer;
+      color: #878a8c;
+      font-size: 16px;
+      margin-right: 6px;
+      user-select: none;
+    }
+    .collapse-button:hover {
+      color: #0079d3;
+    }
+    .collapsed .comment-content,
+    .collapsed .comment-actions,
+    .collapsed .replies {
+      display: none;
+    }
+    .collapsed .user-info:after {
+      content: "[collapsed]";
+      font-style: italic;
+      color: #878a8c;
+      margin-left: 5px;
+    }
+    .collapsed {
+      padding-bottom: 0;
+      margin-bottom: 4px;
+    }
+    .highlight-op {
+      background-color: rgba(0, 121, 211, 0.05);
+      border: 1px solid rgba(0, 121, 211, 0.1);
+      border-radius: 4px;
+      padding: 8px;
+    }
+    .thread-title {
+      font-size: 20px;
+      font-weight: 500;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #edeff1;
+    }
+  </style>
+</head>
+<body>
+  <div class="thread-title">PostgreSQL Development Discussion</div>
+  
+  <!-- Main comment -->
+  <div class="comment highlight-op" id="comment-1">
+    <div class="user-info">
+      <span class="collapse-button" onclick="toggleCollapse('comment-1')">[-]</span>
+      <div class="username">Andy Fan (zhihuifan1213(at)163(dot)com)</div>
+      <div class="comment-time">• Feb 25, 2025</div>
+    </div>
+    <div class="comment-content">
+      My question is why can't we share the same snapshot for the 2 cases?
+      parser & planner requires Catalog Snapshot which should be the
+      latest one, but in the above case, looks the executor can reuse it as
+      well. Is there anything I missed?
+    </div>
+    <div class="comment-actions">
+      <div class="vote-buttons">
+        <span class="vote-arrow" onclick="upvote('comment-1')">↑</span>
+        <span class="vote-count" id="vote-count-1">3</span>
+        <span class="vote-arrow" onclick="downvote('comment-1')">↓</span>
+      </div>
+      <div class="comment-action">💬 Reply</div>
+      <div class="comment-action">🏆 Award</div>
+      <div class="comment-action">↗️ Share</div>
+      <div class="comment-action">•••</div>
+    </div>
+    
+    <!-- First reply -->
+    <div class="replies">
+      <div class="comment" id="comment-2">
+        <div class="user-info">
+          <span class="collapse-button" onclick="toggleCollapse('comment-2')">[-]</span>
+          <div class="username">Tom Lane</div>
+          <div class="comment-time">• Feb 25, 2025</div>
+        </div>
+        <div class="comment-content">
+          Many years ago, we committed a patch to do exactly that. We had
+          to back it out again because it broke too many real-world scenarios.
+          I'm too lazy to search the archives for you, but you might be able
+          to find the commit and revert by searching the git history.
+          <br><br>
+          regards, tom lane
+        </div>
+        <div class="comment-actions">
+          <div class="vote-buttons">
+            <span class="vote-arrow" onclick="upvote('comment-2')">↑</span>
+            <span class="vote-count" id="vote-count-2">7</span>
+            <span class="vote-arrow" onclick="downvote('comment-2')">↓</span>
+          </div>
+          <div class="comment-action">💬 Reply</div>
+          <div class="comment-action">🏆 Award</div>
+          <div class="comment-action">↗️ Share</div>
+          <div class="comment-action">•••</div>
+        </div>
+        
+        <!-- Reply to Tom Lane -->
+        <div class="replies">
+          <div class="comment highlight-op" id="comment-3">
+            <div class="user-info">
+              <span class="collapse-button" onclick="toggleCollapse('comment-3')">[-]</span>
+              <div class="username">Andy Fan</div>
+              <div class="comment-time">• Feb 25, 2025</div>
+            </div>
+            <div class="comment-content">
+              Commit id is 532994299e2, thank you Tom!
+            </div>
+            <div class="comment-actions">
+              <div class="vote-buttons">
+                <span class="vote-arrow" onclick="upvote('comment-3')">↑</span>
+                <span class="vote-count" id="vote-count-3">4</span>
+                <span class="vote-arrow" onclick="downvote('comment-3')">↓</span>
+              </div>
+              <div class="comment-action">💬 Reply</div>
+              <div class="comment-action">🏆 Award</div>
+              <div class="comment-action">↗️ Share</div>
+              <div class="comment-action">•••</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Toggle collapse/expand for comments
+    function toggleCollapse(commentId) {
+      const comment = document.getElementById(commentId);
+      if (comment.classList.contains('collapsed')) {
+        comment.classList.remove('collapsed');
+        comment.querySelector('.collapse-button').textContent = '[-]';
+      } else {
+        comment.classList.add('collapsed');
+        comment.querySelector('.collapse-button').textContent = '[+]';
+      }
+    }
+    
+    // Voting functions
+    function upvote(commentId) {
+      const voteCount = document.getElementById(`vote-count-${commentId.split('-')[1]}`);
+      voteCount.textContent = parseInt(voteCount.textContent) + 1;
+      
+      // Highlight the arrow when clicked
+      const upArrow = document.querySelector(`#${commentId} .vote-buttons .vote-arrow:first-child`);
+      upArrow.style.color = '#FF4500';
+      
+      // Reset downvote if active
+      const downArrow = document.querySelector(`#${commentId} .vote-buttons .vote-arrow:last-child`);
+      downArrow.style.color = '#878a8c';
+    }
+    
+    function downvote(commentId) {
+      const voteCount = document.getElementById(`vote-count-${commentId.split('-')[1]}`);
+      voteCount.textContent = parseInt(voteCount.textContent) - 1;
+      
+      // Highlight the arrow when clicked
+      const downArrow = document.querySelector(`#${commentId} .vote-buttons .vote-arrow:last-child`);
+      downArrow.style.color = '#7193FF';
+      
+      // Reset upvote if active
+      const upArrow = document.querySelector(`#${commentId} .vote-buttons .vote-arrow:first-child`);
+      upArrow.style.color = '#878a8c';
+    }
+  </script>
+</body>
+</html>
